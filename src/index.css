@@ -1,0 +1,99 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #F9F8F5;
+  --surface: #ffffff;
+  --surface-muted: #F5F4F0;
+  --ink: #191919;
+  --secondary: #96948B;
+  --accent: #076638;
+  --line: #C8D9A5;
+  --accent-yellow: #D8B96A;
+  --accent-green: #AFC58C;
+  --ink-faint: var(--line);
+}
+
+@layer base {
+
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+    font-family: 'Poppins', sans-serif;
+  }
+
+  body {
+    font-family: 'Poppins', sans-serif;
+    background-color: var(--bg);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+    margin: 0;
+    padding: 0;
+  }
+}
+
+button {
+  border-radius: 9999px;
+}
+
+.font-editorial {
+  font-family: 'Poppins', sans-serif;
+}
+
+.font-editorial-mono {
+  font-family: 'Poppins', sans-serif;
+}
+
+.font-editorial-sans {
+  font-family: 'Poppins', sans-serif;
+}
+
+.font-brand {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+}
+
+.label {
+  font-family: 'Poppins', sans-serif;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--secondary);
+}
+
+.btn-upload {
+  background: var(--accent);
+  color: var(--bg);
+  border: none;
+  border-radius: 9999px;
+  padding: 0.75rem 1.75rem;
+  font-family: 'Poppins', sans-serif;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
+}
+
+.btn-upload:hover {
+  background: #64190F;
+}
+
+/* Editorial Glass and Panel Utilities */
+.glass-panel {
+  background: var(--surface);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--ink-faint);
+}
+
+.glass-panel-dark {
+  background: var(--ink);
+  border: 1px solid var(--accent-green);
+}
+
+.glass-panel-beige {
+  background: var(--surface-muted);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--ink-faint);
+}

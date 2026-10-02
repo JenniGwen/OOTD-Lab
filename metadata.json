@@ -1,0 +1,6 @@
+{
+  "name": "fitcheck",
+  "description": "Aplikasi lemari virtual pintar dengan wear tracking, mix-match generator interaktif, dan simulasi fitting busana AI Virtual Try-On berbasis deteksi postur tubuh.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
