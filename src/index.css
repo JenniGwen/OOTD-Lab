@@ -36,6 +36,10 @@ button {
   border-radius: 9999px;
 }
 
+.square-control {
+  border-radius: 0 !important;
+}
+
 .font-editorial {
   font-family: 'Poppins', sans-serif;
 }

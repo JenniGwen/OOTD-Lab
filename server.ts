@@ -67,7 +67,7 @@ app.post('/api/ai/analyze-clothing', async (req, res) => {
     const cleanBase64 = imageBase64.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '');
 
     const response = await ai.models.generateContent({
-      model: GEMINI_CURATE_MODEL,
+      model: 'gemini-3.8-flash',
       contents: [
         {
           inlineData: {
@@ -146,7 +146,7 @@ app.post('/api/ai/mixmatch', async (req, res) => {
     }));
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: GEMINI_CURATE_MODEL,
       contents: `Bertindaklah sebagai Fashion Stylist AI profesional. 
 Berikut adalah item di lemari pakaian pengguna:
 ${JSON.stringify(itemsSummary, null, 2)}
@@ -239,7 +239,7 @@ Kembalikan dalam JSON:
       : status === 503
         ? 'Model teks Gemini untuk kurasi sedang sibuk. Coba lagi sebentar lagi.'
         : error?.message || 'Unknown error';
-    res.status(500).json({
+    res.status(status).json({
       error: 'Failed to generate mix-match recommendations',
       message,
     });

@@ -166,33 +166,12 @@ export default function App() {
   const handleSaveVtonResult = (result: VTONResult) => {
     setVtonHistory((prev) => [result, ...prev.slice(0, 19)]); // keep latest 20
   };
-  // SVG data URI for micro-polka-dot stipple (1px sage dots on 8px grid)
-  const dotSvg = `url("data:image/svg+xml,%3Csvg width='8' height='8' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='1' cy='1' r='0.6' fill='%23a8bf8f' fill-opacity='0.22'/%3E%3C/svg%3E")`;
+  // Sparse vermilion and sage polka dots keep the white canvas lively without crowding content.
+  const dotSvg = `url("data:image/svg+xml,%3Csvg width='96' height='96' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='14' cy='20' r='7' fill='%23e34b3f' fill-opacity='0.14'/%3E%3Ccircle cx='58' cy='69' r='4' fill='%23e34b3f' fill-opacity='0.16'/%3E%3Ccircle cx='82' cy='28' r='1.5' fill='%23a8bf8f' fill-opacity='0.42'/%3E%3Ccircle cx='39' cy='49' r='1' fill='%23e34b3f' fill-opacity='0.28'/%3E%3Ccircle cx='74' cy='89' r='1.2' fill='%23a8bf8f' fill-opacity='0.35'/%3E%3C/svg%3E")`;
 
   return (
     <>
-      {/* ─── Ambient Layer 1: Radial sage-green blush gradients from edges ─── */}
-      <div
-        aria-hidden="true"
-        style={{
-          position: 'fixed',
-          inset: 0,
-          zIndex: 0,
-          pointerEvents: 'none',
-          background: [
-            'radial-gradient(80% 70% at 0% 0%, hsla(110,28%,78%,0.35), transparent 65%)',
-            'radial-gradient(75% 65% at 100% 0%, hsla(120,22%,82%,0.30), transparent 60%)',
-            'radial-gradient(70% 75% at 0% 100%, hsla(100,30%,76%,0.32), transparent 62%)',
-            'radial-gradient(80% 80% at 100% 100%, hsla(130,20%,84%,0.28), transparent 68%)',
-            'radial-gradient(50% 55% at 0% 50%, hsla(115,26%,80%,0.33), transparent 55%)',
-            'radial-gradient(50% 55% at 100% 50%, hsla(105,24%,79%,0.30), transparent 55%)',
-            'radial-gradient(55% 45% at 50% 0%, hsla(120,22%,82%,0.28), transparent 50%)',
-            'radial-gradient(55% 45% at 50% 100%, hsla(100,30%,76%,0.30), transparent 50%)',
-          ].join(', '),
-        }}
-      />
-
-      {/* ─── Ambient Layer 2: Micro-polka-dot stipple, fading toward center ─── */}
+      {/* Polka-dot accents fade toward the center to keep the content area calm. */}
       <div
         aria-hidden="true"
         style={{
@@ -201,7 +180,7 @@ export default function App() {
           zIndex: 0,
           pointerEvents: 'none',
           backgroundImage: dotSvg,
-          backgroundSize: '8px 8px',
+          backgroundSize: '96px 96px',
           WebkitMaskImage: 'radial-gradient(72% 68% at 50% 50%, transparent 10%, rgba(0,0,0,0.2) 35%, rgba(0,0,0,0.55) 60%, rgba(0,0,0,1) 88%)',
           maskImage: 'radial-gradient(72% 68% at 50% 50%, transparent 10%, rgba(0,0,0,0.2) 35%, rgba(0,0,0,0.55) 60%, rgba(0,0,0,1) 88%)',
         }}

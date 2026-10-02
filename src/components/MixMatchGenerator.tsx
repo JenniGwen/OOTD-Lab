@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   Wand2,
   Sparkles,
@@ -40,6 +40,117 @@ interface AiOutfitRecommendation {
   reasoning: string;
   colorHarmony: ColorHarmony;
   stylingTips: string[];
+}
+
+type HSL = { h: number; s: number; l: number };
+
+const COLOR_NAME_HEX: Record<string, string> = {
+  putih: '#FFFFFF', white: '#FFFFFF', ivory: '#FFFFF0',
+  hitam: '#191919', black: '#191919', charcoal: '#36454F',
+  abu: '#96948B', 'abu-abu': '#96948B', gray: '#808080', grey: '#808080', silver: '#C0C0C0',
+  krem: '#F5F5DC', cream: '#F5F5DC', beige: '#DCCFB4', khaki: '#C3B091',
+  navy: '#1E3A5F', 'biru navy': '#1E3A5F', denim: '#4F6D8A', biru: '#3975A5', blue: '#3975A5',
+  merah: '#D94A3A', red: '#D94A3A', vermilion: '#E34234',
+  hijau: '#54845B', green: '#54845B', olive: '#708238',
+  cokelat: '#795548', brown: '#795548', tan: '#C19A6B',
+  kuning: '#D8B96A', yellow: '#D8B96A', gold: '#D4AF37',
+  pink: '#D98C9A', merahmuda: '#D98C9A', ungu: '#8064A2', purple: '#8064A2',
+  orange: '#D98236', jingga: '#D98236',
+};
+
+function hexToHsl(hex: string): HSL | null {
+  const normalized = hex.replace('#', '').trim();
+  const expanded = normalized.length === 3 ? normalized.split('').map((value) => value + value).join('') : normalized;
+  if (!/^[\da-f]{6}$/i.test(expanded)) return null;
+
+  const red = parseInt(expanded.slice(0, 2), 16) / 255;
+  const green = parseInt(expanded.slice(2, 4), 16) / 255;
+  const blue = parseInt(expanded.slice(4, 6), 16) / 255;
+  const max = Math.max(red, green, blue);
+  const min = Math.min(red, green, blue);
+  const delta = max - min;
+  const lightness = (max + min) / 2;
+  const saturation = delta === 0 ? 0 : delta / (1 - Math.abs(2 * lightness - 1));
+  let hue = 0;
+
+  if (delta !== 0) {
+    if (max === red) hue = ((green - blue) / delta) % 6;
+    else if (max === green) hue = (blue - red) / delta + 2;
+    else hue = (red - green) / delta + 4;
+    hue = (hue * 60 + 360) % 360;
+  }
+
+  return { h: hue, s: saturation, l: lightness };
+}
+
+function resolveColorHex(hexColor?: string, colorName?: string, sampledHex?: string): string | null {
+  if (hexColor && hexToHsl(hexColor)) return `#${hexColor.replace('#', '').toUpperCase()}`;
+
+  const normalizedName = colorName?.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+  if (normalizedName) {
+    const colorMatch = Object.entries(COLOR_NAME_HEX).find(([name]) => normalizedName.includes(name));
+    if (colorMatch) return colorMatch[1];
+  }
+
+  return sampledHex && hexToHsl(sampledHex) ? sampledHex : null;
+}
+
+function sampleDominantHex(imageUrl: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const image = new Image();
+    image.crossOrigin = 'anonymous';
+    image.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = 32;
+        canvas.height = 32;
+        const context = canvas.getContext('2d', { willReadFrequently: true });
+        if (!context) return resolve(null);
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+        const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+        const buckets = new Map<string, { count: number; red: number; green: number; blue: number }>();
+        for (let pixelIndex = 0; pixelIndex < pixels.length; pixelIndex += 4) {
+          const alpha = pixels[pixelIndex + 3];
+          if (alpha < 128) continue;
+          const red = pixels[pixelIndex];
+          const green = pixels[pixelIndex + 1];
+          const blue = pixels[pixelIndex + 2];
+          if (red > 247 && green > 247 && blue > 247) continue;
+
+          const key = `${red >> 4}-${green >> 4}-${blue >> 4}`;
+          const bucket = buckets.get(key) || { count: 0, red: 0, green: 0, blue: 0 };
+          bucket.count += 1;
+          bucket.red += red;
+          bucket.green += green;
+          bucket.blue += blue;
+          buckets.set(key, bucket);
+        }
+
+        const dominant = [...buckets.values()].sort((first, second) => second.count - first.count)[0];
+        if (!dominant) return resolve(null);
+        const toHex = (value: number) => Math.round(value / dominant.count).toString(16).padStart(2, '0');
+        resolve(`#${toHex(dominant.red)}${toHex(dominant.green)}${toHex(dominant.blue)}`.toUpperCase());
+      } catch {
+        resolve(null);
+      }
+    };
+    image.onerror = () => resolve(null);
+    image.src = imageUrl;
+  });
+}
+
+function isNeutral({ s, l }: HSL): boolean {
+  return s < 0.15 || l < 0.12 || l > 0.9;
+}
+
+function hueDiff(first: number, second: number): number {
+  const difference = Math.abs(first - second) % 360;
+  return difference > 180 ? 360 - difference : difference;
+}
+
+function clamp(value: number, min = 0, max = 100): number {
+  return Math.max(min, Math.min(max, value));
 }
 
 // Helper hook for drag/swipe gesture
@@ -141,6 +252,7 @@ export const MixMatchGenerator: React.FC<MixMatchGeneratorProps> = ({
   const [outerwearIndex, setOuterwearIndex] = useState<number>(-1);
   const [shoesIndex, setShoesIndex] = useState<number>(-1);
   const [accessorySlots, setAccessorySlots] = useState<number[]>([]); // up to 5 accessory slots
+  const [sampledColors, setSampledColors] = useState<Record<string, string>>({});
   const MAX_ACC = 5;
 
   // Active outfit metadata
@@ -158,7 +270,35 @@ export const MixMatchGenerator: React.FC<MixMatchGeneratorProps> = ({
   const selectedBottom = bottomIndex >= 0 && bottomIndex < bottoms.length ? bottoms[bottomIndex] : null;
   const selectedOuterwear = outerwearIndex >= 0 && outerwearIndex < outerwears.length ? outerwears[outerwearIndex] : null;
   const selectedShoes = shoesIndex >= 0 && shoesIndex < shoes.length ? shoes[shoesIndex] : null;
-  const selectedAccessories = accessorySlots.map(idx => accessories[idx]).filter(Boolean);
+  const selectedAccessories = useMemo(
+    () => accessorySlots.map((idx) => accessories[idx]).filter((item): item is ClothingItem => Boolean(item)),
+    [accessorySlots, accessories]
+  );
+  const selectedColorItems = useMemo(
+    () => [selectedTop, selectedBottom, selectedOuterwear, selectedShoes, ...selectedAccessories]
+      .filter((item): item is ClothingItem => Boolean(item)),
+    [selectedTop, selectedBottom, selectedOuterwear, selectedShoes, selectedAccessories]
+  );
+
+  useEffect(() => {
+    let isActive = true;
+    const itemsWithoutColorMetadata = selectedColorItems.filter((item) => !resolveColorHex(item.hexColor, item.color));
+    if (itemsWithoutColorMetadata.length === 0) return () => { isActive = false; };
+
+    Promise.all(itemsWithoutColorMetadata.map(async (item) => [item.id, await sampleDominantHex(item.imageUrl)] as const))
+      .then((results) => {
+        if (!isActive) return;
+        setSampledColors((current) => {
+          const next = { ...current };
+          for (const [itemId, hexColor] of results) {
+            if (hexColor) next[itemId] = hexColor;
+          }
+          return next;
+        });
+      });
+
+    return () => { isActive = false; };
+  }, [selectedColorItems]);
 
   // Swipe navigation functions for each section
   const nextTop = () => {
@@ -261,13 +401,11 @@ export const MixMatchGenerator: React.FC<MixMatchGeneratorProps> = ({
 
   // Keep the analysis as structured JSON so the same values can be saved with the outfit.
   const colorAnalysis = useMemo<ColorHarmony>(() => {
-    const palette = [selectedTop, selectedBottom, selectedOuterwear, selectedShoes, ...selectedAccessories]
-      .filter((item): item is ClothingItem => Boolean(item))
-      .map((item) => ({
+    const palette = selectedColorItems.map((item) => ({
         itemId: item.id,
         name: item.name,
         category: item.category,
-        hexColor: item.hexColor || '#808080',
+        hexColor: resolveColorHex(item.hexColor, item.color, sampledColors[item.id]) || '#808080',
       }));
 
     if (palette.length === 0) {
@@ -280,58 +418,76 @@ export const MixMatchGenerator: React.FC<MixMatchGeneratorProps> = ({
       };
     }
 
-    const hues = palette.map(({ hexColor }) => {
-      const hex = hexColor.replace('#', '');
-      const value = hex.length === 3 ? hex.split('').map((part) => part + part).join('') : hex;
-      const red = parseInt(value.slice(0, 2), 16) / 255;
-      const green = parseInt(value.slice(2, 4), 16) / 255;
-      const blue = parseInt(value.slice(4, 6), 16) / 255;
-      const max = Math.max(red, green, blue);
-      const min = Math.min(red, green, blue);
-      const delta = max - min;
-      if (delta === 0) return null;
-      let hue = 0;
-      if (max === red) hue = ((green - blue) / delta) % 6;
-      else if (max === green) hue = (blue - red) / delta + 2;
-      else hue = (red - green) / delta + 4;
-      return (hue * 60 + 360) % 360;
-    }).filter((hue): hue is number => hue !== null);
-
-    let harmonyType = 'neutral';
-    let score = 94;
-    let verdict = 'Palet netral yang mudah dipadukan';
-    let tips = 'Gunakan perbedaan tekstur atau satu aksen warna untuk menambah dimensi.';
-    if (hues.length === 1) {
-      harmonyType = 'neutral-accent';
-      score = 93;
-      verdict = 'Warna netral dengan satu aksen utama';
-      tips = 'Pertahankan aksen ini sebagai fokus dan biarkan warna netral menyeimbangkan outfit.';
-    } else if (hues.length > 1) {
-      const distances = hues.slice(1).map((hue) => {
-        const distance = Math.abs(hues[0] - hue);
-        return Math.min(distance, 360 - distance);
-      });
-      const maxDistance = Math.max(...distances);
-      if (maxDistance <= 30) {
-        harmonyType = 'analogous';
-        score = 96;
-        verdict = 'Warna berdekatan membentuk palet harmonis';
-        tips = 'Variasikan tingkat terang dan gelap agar kombinasi warna serupa tetap berdimensi.';
-      } else if (distances.some((distance) => distance >= 150)) {
-        harmonyType = 'complementary';
-        score = 92;
-        verdict = 'Kontras warna komplementer yang seimbang';
-        tips = 'Biarkan satu warna dominan dan gunakan warna kontras sebagai aksen.';
-      } else {
-        harmonyType = 'mixed';
-        score = 82;
-        verdict = 'Palet warna eklektik';
-        tips = 'Pilih satu item sebagai fokus dan ulangi salah satu warnanya pada aksesori.';
+    const allColors = palette.map(({ hexColor }) => hexToHsl(hexColor)).filter((color): color is HSL => color !== null);
+    const chroma = allColors.filter((color) => !isNeutral(color));
+    const neutrals = allColors.length - chroma.length;
+    let spread = 0;
+    for (let firstIndex = 0; firstIndex < chroma.length; firstIndex += 1) {
+      for (let secondIndex = firstIndex + 1; secondIndex < chroma.length; secondIndex += 1) {
+        spread = Math.max(spread, hueDiff(chroma[firstIndex].h, chroma[secondIndex].h));
       }
     }
 
-    return { score, harmonyType, verdict, tips, palette };
-  }, [selectedTop, selectedBottom, selectedOuterwear, selectedShoes, selectedAccessories]);
+    let hueScore: number;
+    let harmonyType: string;
+    let verdict: string;
+    let tips: string;
+    if (chroma.length <= 1) {
+      hueScore = 80;
+      harmonyType = chroma.length === 0 ? 'Netral / Monochrome' : 'Netral + 1 aksen';
+      verdict = chroma.length === 0
+        ? 'Semua warna netral, aman dan clean. Tambah satu aksen agar lebih hidup.'
+        : 'Satu warna aksen di atas dasar netral selalu terlihat rapi.';
+      tips = chroma.length === 0
+        ? 'Tambahkan aksesori atau satu item berwarna untuk memberi titik fokus.'
+        : 'Gunakan warna netral sebagai penyeimbang aksen utama.';
+    } else {
+      const analogousDistance = spread;
+      const triadicDistance = Math.abs(spread - 120);
+      const complementaryDistance = Math.abs(spread - 180);
+      const bestDistance = Math.min(analogousDistance, triadicDistance, complementaryDistance);
+      hueScore = clamp(88 - bestDistance * 1.2 - (analogousDistance === bestDistance ? 0 : triadicDistance === bestDistance ? 6 : 3));
+
+      if (bestDistance === analogousDistance) {
+        harmonyType = 'Analogous';
+        verdict = 'Warna berdekatan membentuk palet harmonis.';
+        tips = 'Variasikan terang dan gelap agar outfit tetap berdimensi.';
+      } else if (bestDistance === complementaryDistance) {
+        harmonyType = 'Komplementer';
+        verdict = 'Kontras warna memberi karakter yang kuat.';
+        tips = 'Jadikan satu warna dominan dan satu lagi sebagai aksen.';
+      } else {
+        harmonyType = 'Triadic';
+        verdict = 'Kombinasi warna berani dan dinamis.';
+        tips = 'Turunkan saturasi salah satu warna supaya outfit tidak terlihat ramai.';
+      }
+
+      if (bestDistance > 25) {
+        harmonyType = 'Kontras tinggi';
+        verdict = 'Warna kuat saling bersaing dalam palet ini.';
+        tips = 'Ganti salah satu warna kuat dengan warna netral agar lebih seimbang.';
+      }
+    }
+
+    const colorPenalty = Math.max(0, chroma.length - 2) * 8;
+    const averageSaturation = chroma.length > 0
+      ? chroma.reduce((total, color) => total + color.s, 0) / chroma.length
+      : 0;
+    const saturationPenalty = chroma.length >= 2 ? Math.max(0, averageSaturation - 0.6) * 30 : 0;
+    const lightnessValues = allColors.map((color) => color.l);
+    const lightnessRange = lightnessValues.length > 1 ? Math.max(...lightnessValues) - Math.min(...lightnessValues) : 0;
+    const depthBonus = clamp(lightnessRange * 12, 0, 8);
+    const neutralBonus = chroma.length >= 2 && neutrals > 0 ? 4 : 0;
+    const score = Math.round(clamp(hueScore - colorPenalty - saturationPenalty + depthBonus + neutralBonus, 35, 98));
+
+    return {
+      score,
+      harmonyType,
+      verdict,
+      tips,
+      palette,
+    };
+  }, [selectedColorItems, sampledColors]);
 
   // Trigger AI Outfit Recommender
   const handleGenerateAiRecommendation = async () => {
@@ -489,48 +645,52 @@ export const MixMatchGenerator: React.FC<MixMatchGeneratorProps> = ({
         </div>
       </div>
 
-      {aiError && <p role="alert" className="text-sm text-[#7A2117]">Gemini AI: {aiError}</p>}
+      {aiError && (
+        <p role="alert" className="rounded-xl border border-[#E6B8B2] bg-[#FBF1EF] px-4 py-3 text-sm leading-relaxed text-[#64190F]">
+          Gemini AI: {aiError}
+        </p>
+      )}
 
-      {/* AI Recommendations List if generated - Refined Atelier Dark */}
+      {/* AI Recommendations */}
       {aiRecommendations.length > 0 && (
-        <div className="bg-[#7A2117] text-[#F8F6EC] p-6 sm:p-7 border border-[#C8D9A5] shadow-lg space-y-5">
-          <div className="flex items-center justify-between border-b border-white/10 pb-4">
+        <section className="border border-[#C8D9A5] bg-white p-5 sm:p-6 shadow-sm space-y-5">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#C8D9A5] pb-4">
             <div className="flex items-center gap-2.5">
-              <Sparkles className="w-3.5 h-3.5 text-[#F8F6EC]/80" />
-              <h3 className="font-editorial text-xl font-normal tracking-wide text-white">Kurasi Padu-Padan AI Stylist</h3>
+              <Sparkles className="h-4 w-4 shrink-0 text-[#7A2117]" />
+              <h3 className="font-editorial text-xl font-semibold text-[#191919]">Kurasi Padu-Padan AI Stylist</h3>
             </div>
-            <span className="label text-white/50 border border-white/20 px-2.5 py-0.5">
+            <span className="rounded-full bg-[#F2F7E8] px-3 py-1 text-xs font-medium text-[#41483A]">
               Curated Selection
             </span>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {aiRecommendations.map((rec, idx) => (
               <div
                 key={idx}
-                className="bg-white/[0.04] border border-white/10 p-5 flex flex-col justify-between space-y-4 hover:border-white/30 transition-colors"
+                className="min-w-0 border border-[#C8D9A5] bg-[#F9F8F5] p-4 sm:p-5 flex flex-col justify-between gap-4 transition-colors hover:bg-[#F2F7E8]/60"
               >
                 <div>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-editorial-mono text-[10px] text-white/90 border border-white/20 px-2 py-0.5 uppercase tracking-wider">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="rounded-full bg-[#AFC58C] px-3 py-1 text-xs font-semibold text-[#191919]">
                       Match {rec.score}%
                     </span>
-                    <span className="text-[11px] text-white/50 truncate font-light">{rec.occasion}</span>
+                    <span className="min-w-0 truncate text-xs text-[#66635C]">{rec.occasion}</span>
                   </div>
 
-                  <h4 className="font-editorial text-lg font-normal text-white mt-3 leading-snug">{rec.title}</h4>
-                  <p className="text-xs text-white/70 mt-1 line-clamp-2 font-light leading-relaxed">{rec.reasoning}</p>
-                  <div className="mt-2 text-[11px] text-white/70">
-                    <span className="text-white">{rec.colorHarmony.harmonyType}</span>
-                    {' · '}{rec.colorHarmony.score}% · {rec.colorHarmony.verdict}
+                  <h4 className="mt-4 break-words text-lg font-semibold leading-snug text-[#191919]">{rec.title}</h4>
+                  <p className="mt-2 line-clamp-3 break-words text-sm leading-relaxed text-[#66635C]">{rec.reasoning}</p>
+                  <div className="mt-3 space-y-1 text-xs leading-relaxed text-[#66635C]">
+                    <p><span className="font-semibold capitalize text-[#41483A]">{rec.colorHarmony.harmonyType}</span> · {rec.colorHarmony.score}%</p>
+                    <p className="break-words">{rec.colorHarmony.verdict}</p>
                   </div>
 
-                  <div className="flex items-center gap-2 mt-4 pt-3 border-t border-white/10">
+                  <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-[#C8D9A5] pt-3">
                     {rec.itemIds?.map((itemId: string) => {
                       const it = items.find((x) => x.id === itemId);
                       if (!it) return null;
                       return (
-                        <div key={itemId} className="w-10 h-10 bg-white/10 border border-white/15 p-1 flex items-center justify-center">
+                        <div key={itemId} className="flex h-11 w-11 shrink-0 items-center justify-center border border-[#C8D9A5] bg-[#F2F7E8] p-1">
                           <img
                             src={it.imageUrl}
                             alt={it.name}
@@ -546,22 +706,22 @@ export const MixMatchGenerator: React.FC<MixMatchGeneratorProps> = ({
 
                 <button
                   onClick={() => applyRecommendation(rec)}
-                  className="w-full py-2.5 bg-white text-[#191919] hover:bg-[#F8F6EC]/90 text-xs font-editorial-mono tracking-widest uppercase transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                  className="flex w-full items-center justify-center gap-2 rounded-full bg-[#7A2117] px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-[#64190F] cursor-pointer"
                 >
                   <span>Terapkan ke Manekin</span>
-                  <ChevronRight className="w-3.5 h-3.5" />
+                  <ChevronRight className="h-4 w-4" />
                 </button>
               </div>
             ))}
           </div>
-        </div>
+        </section>
       )}
 
       {/* Main Workspace: Interactive Mannequin Canvas (Left) & Controls/Saved (Right) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left: Interactive Mannequin Canvas (6 cols) */}
         <div className="lg:col-span-6 space-y-4">
-          <div className="bg-[#F8F6EC] border border-[#C8D9A5] p-5 sm:p-6 shadow-sm relative overflow-hidden flex flex-col items-center">
+          <div className="w-full border border-black/[0.04] bg-white p-5 sm:p-6 shadow-[0_2px_20px_rgba(60,40,30,0.06)] relative overflow-hidden flex flex-col items-center">
             {/* Canvas Header */}
             <div className="w-full flex items-center justify-between pb-3 border-b border-[#C8D9A5] mb-2">
               <div className="flex items-center gap-2">
@@ -611,7 +771,7 @@ export const MixMatchGenerator: React.FC<MixMatchGeneratorProps> = ({
                 ) : (
                   <button
                     onClick={() => { if (outerwears.length > 0) setOuterwearIndex(0); }}
-                    className="w-full h-[200px] border-2 border-dashed border-[#C8D9A5] hover:border-[#C8D9A5] flex flex-col items-center justify-center gap-1 text-[#96948B] hover:text-[#191919] transition-all cursor-pointer bg-white/30 hover:bg-white/60"
+                    className="square-control w-full h-[200px] border border-dashed border-[#C8D9A5] hover:border-[#AFC58C] flex flex-col items-center justify-center gap-1 text-[#96948B] hover:text-[#191919] transition-all cursor-pointer bg-[#F9F8F5] hover:bg-[#F2F7E8]"
                     title="Tambah luaran"
                   >
                     <Plus className="w-5 h-5" />
@@ -646,7 +806,7 @@ export const MixMatchGenerator: React.FC<MixMatchGeneratorProps> = ({
                       {accessorySlots.length < MAX_ACC && accessorySlots.length < accessories.length && (
                         <button
                           onClick={addAccessorySlot}
-                          className="aspect-square border-2 border-dashed border-[#C8D9A5] hover:border-[#C8D9A5] flex flex-col items-center justify-center gap-1 text-[#96948B] hover:text-[#191919] transition-all cursor-pointer bg-white/30 hover:bg-white/60"
+                          className="square-control aspect-square border border-dashed border-[#C8D9A5] hover:border-[#AFC58C] flex flex-col items-center justify-center gap-1 text-[#96948B] hover:text-[#191919] transition-all cursor-pointer bg-[#F9F8F5] hover:bg-[#F2F7E8]"
                         >
                           <Plus className="w-4 h-4" />
                           <span className="label text-[9px]">Tambah Aksesoris</span>
@@ -677,7 +837,7 @@ export const MixMatchGenerator: React.FC<MixMatchGeneratorProps> = ({
                       type="button"
                       onClick={() => { if (tops.length > 0) setTopIndex(0); }}
                       disabled={tops.length === 0}
-                      className="w-full h-full flex flex-col items-center justify-center gap-1 label text-[#96948B] hover:text-[#191919] border border-dashed border-[#C8D9A5] hover:border-[#C8D9A5] disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                      className="square-control w-full h-full flex flex-col items-center justify-center gap-1 label text-[#96948B] hover:text-[#191919] border border-dashed border-[#C8D9A5] hover:border-[#C8D9A5] disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
                     >
                       <Plus className="w-4 h-4" />
                       {tops.length > 0 ? 'Tambah Atasan' : 'Belum ada atasan'}
@@ -702,7 +862,7 @@ export const MixMatchGenerator: React.FC<MixMatchGeneratorProps> = ({
                       type="button"
                       onClick={() => { if (bottoms.length > 0) setBottomIndex(0); }}
                       disabled={bottoms.length === 0}
-                      className="w-full h-full flex flex-col items-center justify-center gap-1 label text-[#96948B] hover:text-[#191919] border border-dashed border-[#C8D9A5] hover:border-[#C8D9A5] disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                      className="square-control w-full h-full flex flex-col items-center justify-center gap-1 label text-[#96948B] hover:text-[#191919] border border-dashed border-[#C8D9A5] hover:border-[#C8D9A5] disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
                     >
                       <Plus className="w-4 h-4" />
                       {bottoms.length > 0 ? 'Tambah Bawahan' : 'Belum ada bawahan'}
@@ -724,7 +884,7 @@ export const MixMatchGenerator: React.FC<MixMatchGeneratorProps> = ({
                       <button onClick={(e) => { e.stopPropagation(); setShoesIndex(-1); }} className="absolute -top-2 -right-3 w-4 h-4 rounded-full bg-[#191919]/70 hover:bg-[#7A2117] text-white opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity cursor-pointer"><X className="w-2.5 h-2.5" /></button>
                     </div>
                   ) : (
-                    <button onClick={() => { if (shoes.length > 0) setShoesIndex(0); }} className="flex items-center gap-1 label text-[#96948B] hover:text-[#191919] border border-dashed border-[#C8D9A5] hover:border-[#C8D9A5] px-3 py-1 bg-white/40 transition-all cursor-pointer">
+                    <button onClick={() => { if (shoes.length > 0) setShoesIndex(0); }} className="square-control flex items-center gap-1 label text-[#96948B] hover:text-[#191919] border border-dashed border-[#C8D9A5] hover:border-[#AFC58C] px-3 py-1.5 bg-[#F9F8F5] hover:bg-[#F2F7E8] transition-all cursor-pointer">
                       <Plus className="w-3 h-3" /> Sepatu
                     </button>
                   )}
@@ -738,7 +898,7 @@ export const MixMatchGenerator: React.FC<MixMatchGeneratorProps> = ({
               <button
                 onClick={handleTransitToVton}
                 disabled={!selectedTop && !selectedBottom}
-                className="w-full py-3 px-4 bg-[#7A2117] hover:bg-[#7A2117] disabled:opacity-40 text-[#F8F6EC] text-xs font-editorial-mono uppercase tracking-[0.1em] transition-all flex items-center justify-center gap-2 cursor-pointer"
+                className="w-full rounded-full py-3 px-4 bg-[#7A2117] hover:bg-[#64190F] disabled:opacity-40 text-white text-xs font-editorial-mono uppercase tracking-[0.1em] transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
                 <span>TES OUTFIT MANEKIN DI VIRTUAL TRY-ON</span>
                 <ArrowRight className="w-4 h-4" />
@@ -760,7 +920,7 @@ export const MixMatchGenerator: React.FC<MixMatchGeneratorProps> = ({
         {/* Right: Harmoni Warna, Detail Outfit & Saved Collection (6 cols) */}
         <div className="lg:col-span-6 space-y-5">
           {/* Color Harmony Card - Editorial */}
-          <div className="bg-[#F8F6EC] p-6 border border-[#C8D9A5] shadow-sm space-y-4">
+          <div className="bg-white p-6 border border-black/[0.04] shadow-[0_2px_20px_rgba(60,40,30,0.06)] space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-[#C8D9A5]">
               <div>
                 <h3 className="font-editorial text-2xl font-normal text-[#191919]">
@@ -781,7 +941,22 @@ export const MixMatchGenerator: React.FC<MixMatchGeneratorProps> = ({
               />
             </div>
 
-            <div className="bg-[#F4F1E5] p-4 border border-[#C8D9A5] space-y-1">
+            <div className="bg-[#F9F8F5] p-4 border border-[#E8E6DD] space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <span className="bg-[#F2F7E8] px-3 py-1 text-xs font-semibold text-[#41483A]">
+                  {colorAnalysis.harmonyType}
+                </span>
+                <div className="flex items-center gap-1.5" aria-label="Warna outfit terpilih">
+                  {colorAnalysis.palette.map((color) => (
+                    <span
+                      key={color.itemId}
+                      className="h-5 w-5 border border-black/10"
+                      style={{ backgroundColor: color.hexColor }}
+                      title={`${color.name}: ${color.hexColor}`}
+                    />
+                  ))}
+                </div>
+              </div>
               <p className="text-xs font-bold text-[#191919] font-editorial-mono">{colorAnalysis.verdict}</p>
               <p className="text-xs text-[#96948B] leading-relaxed font-light">{colorAnalysis.tips}</p>
             </div>
@@ -797,7 +972,7 @@ export const MixMatchGenerator: React.FC<MixMatchGeneratorProps> = ({
                   value={outfitName}
                   onChange={(e) => setOutfitName(e.target.value)}
                   placeholder="Contoh: Monokromatik Santai"
-                  className="w-full px-3.5 py-2 text-xs bg-[#F8F6EC] border border-[#C8D9A5] focus:outline-none focus:border-[#C8D9A5]"
+                  className="w-full rounded-xl px-3.5 py-2.5 text-sm bg-[#F9F8F5] border border-[#E8E6DD] focus:outline-none focus:border-[#AFC58C] focus:ring-2 focus:ring-[#AFC58C]/30"
                 />
               </div>
 
@@ -810,7 +985,7 @@ export const MixMatchGenerator: React.FC<MixMatchGeneratorProps> = ({
                   value={occasion}
                   onChange={(e) => setOccasion(e.target.value)}
                   placeholder="Casual, Formal, Gallery"
-                  className="w-full px-3.5 py-2 text-xs bg-[#F8F6EC] border border-[#C8D9A5] focus:outline-none focus:border-[#C8D9A5]"
+                  className="w-full rounded-xl px-3.5 py-2.5 text-sm bg-[#F9F8F5] border border-[#E8E6DD] focus:outline-none focus:border-[#AFC58C] focus:ring-2 focus:ring-[#AFC58C]/30"
                 />
               </div>
             </div>
@@ -820,7 +995,7 @@ export const MixMatchGenerator: React.FC<MixMatchGeneratorProps> = ({
               <button
                 onClick={handleSaveCurrentOutfit}
                 disabled={!selectedTop && !selectedBottom}
-                className="flex-1 py-2.5 px-4 bg-[#7A2117] hover:bg-[#191919] disabled:opacity-40 text-[#F8F6EC] text-xs font-editorial-mono uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                className="flex-1 rounded-full py-3 px-4 bg-[#7A2117] hover:bg-[#64190F] disabled:opacity-40 text-white text-xs font-medium uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer"
               >
                 {justSaved ? (
                   <>
@@ -838,7 +1013,7 @@ export const MixMatchGenerator: React.FC<MixMatchGeneratorProps> = ({
               <button
                 onClick={handleLogOutfitWearClick}
                 disabled={!selectedTop && !selectedBottom}
-                className="py-2.5 px-4 bg-transparent hover:bg-[#7A2117] hover:text-[#F8F6EC] disabled:opacity-40 text-[#191919] border border-[#C8D9A5] text-xs font-editorial-mono uppercase tracking-wider flex items-center gap-1.5 transition-colors cursor-pointer"
+                className="rounded-full py-3 px-4 bg-white hover:bg-[#F2F7E8] disabled:opacity-40 text-[#191919] border border-[#DADFD0] text-xs font-medium uppercase tracking-wider flex items-center gap-1.5 transition-colors cursor-pointer"
               >
                 {justLogged ? (
                   <>
@@ -856,7 +1031,7 @@ export const MixMatchGenerator: React.FC<MixMatchGeneratorProps> = ({
           </div>
 
           {/* Saved Outfits Shelf - Editorial */}
-          <div className="bg-[#F8F6EC] p-6 border border-[#C8D9A5] shadow-sm space-y-4">
+          <div className="bg-white p-6 border border-black/[0.04] shadow-[0_2px_20px_rgba(60,40,30,0.06)] space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-[#C8D9A5]">
               <div>
                 <h3 className="font-editorial text-2xl font-normal text-[#191919]">
@@ -867,7 +1042,7 @@ export const MixMatchGenerator: React.FC<MixMatchGeneratorProps> = ({
             </div>
 
             {savedOutfits.length === 0 ? (
-              <div className="py-8 text-center text-[#96948B] text-xs font-editorial-mono border border-dashed border-[#C8D9A5] p-4">
+              <div className="bg-[#F9F8F5] py-8 text-center text-[#96948B] text-sm border border-dashed border-[#DADFD0] p-4">
                 Belum ada outfit tersimpan. Geser pakaian di manekin lalu klik "Simpan Outfit Manekin".
               </div>
             ) : (
@@ -887,7 +1062,7 @@ export const MixMatchGenerator: React.FC<MixMatchGeneratorProps> = ({
                   return (
                     <div
                       key={outfit.id}
-                      className="p-3.5 bg-[#F2F7E8] border border-[#C8D9A5] hover:border-[#C8D9A5] transition-all flex flex-col justify-between space-y-2 group"
+                      className="p-4 bg-[#F9F8F5] border border-[#E8E6DD] hover:border-[#AFC58C] transition-all flex flex-col justify-between space-y-2 group"
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div>
