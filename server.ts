@@ -10,6 +10,7 @@ dotenv.config({ path: ['.env.local', '.env'] });
 const app = express();
 const PORT = 3000;
 const GEMINI_CURATE_MODEL = process.env.GEMINI_CURATE_MODEL || 'gemini-3.5-flash';
+const GEMINI_VISION_MODEL = process.env.GEMINI_VISION_MODEL || 'gemini-3.5-flash-lite';
 
 // Body parser limits for base64 image data (Virtual Try-on photos)
 app.use(express.json({ limit: '50mb' }));
@@ -49,6 +50,7 @@ app.post('/api/ai/analyze-clothing', async (req, res) => {
 
     const ai = getGeminiClient();
     if (!ai) {
+      console.warn('[analyze-clothing] No GEMINI_API_KEY found, returning fallback defaults.');
       // Fallback heuristics if no API key
       return res.json({
         name: 'Pakaian Baru',
@@ -66,8 +68,10 @@ app.post('/api/ai/analyze-clothing', async (req, res) => {
     const mimeType = imageBase64.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,/)?.[1] || 'image/jpeg';
     const cleanBase64 = imageBase64.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '');
 
+    console.log(`[analyze-clothing] Sending image to Gemini (${(cleanBase64.length / 1024).toFixed(0)}KB, type: ${mimeType})...`);
+
     const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: GEMINI_VISION_MODEL,
       contents: [
         {
           inlineData: {
@@ -106,9 +110,10 @@ Kembalikan data dalam format JSON murni dengan atribut:
     });
 
     const parsed = JSON.parse(response.text || '{}');
+    console.log('[analyze-clothing] Gemini result:', JSON.stringify(parsed, null, 2));
     res.json(parsed);
   } catch (error: any) {
-    console.error('Error analyzing clothing:', error);
+    console.error('[analyze-clothing] Error:', error?.message || error);
     res.status(500).json({
       error: 'Failed to analyze clothing',
       message: error?.message || 'Unknown error',
@@ -342,7 +347,7 @@ Kembalikan JSON dengan atribut:
         });
 
         const response = await ai.models.generateContent({
-          model: 'gemini-3.8-flash',
+          model: GEMINI_VISION_MODEL,
           contents: parts,
           config: {
             responseMimeType: 'application/json',

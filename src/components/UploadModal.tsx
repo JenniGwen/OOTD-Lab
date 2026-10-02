@@ -217,10 +217,11 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onSav
       if (data.material) setMaterial(data.material);
       if (data.style) setStyle(data.style);
     } catch (err: any) {
-      console.warn('AI analysis notice:', err);
+      console.error('AI analysis failed:', err);
+      // Show error to user so they know AI is not working
+      setErrorMsg('⚠️ Gemini AI gagal menganalisis. Silakan isi detail secara manual, atau klik "Re-Analyze" untuk coba lagi.');
+      // Only set minimal defaults so the form is usable
       if (!name) setName('Pakaian Baru');
-      if (!subCategory) setSubCategory('Kaos / Kemeja');
-      if (!color) setColor('Hitam Netral');
     }
   };
 
