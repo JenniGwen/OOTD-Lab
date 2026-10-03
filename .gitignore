@@ -9,3 +9,4 @@ coverage/
 Leffa/
 weights/
 __pycache__/
+.venv/
