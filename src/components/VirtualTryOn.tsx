@@ -147,7 +147,7 @@ export const VirtualTryOn: React.FC<VirtualTryOnProps> = ({
       const img = await post('/api/vton/tryon', {
         personImage: personPhoto,
         assetBaseUrl: window.location.origin,
-        garments: modelGarments.map(({ name, category, imageUrl }) => ({ name, category, imageUrl })),
+        garments: modelGarments.map(({ name, category, subCategory, imageUrl }) => ({ name, category, subCategory, imageUrl })),
       });
       setResult(img);
       setProgress(100);

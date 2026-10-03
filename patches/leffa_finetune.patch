@@ -1,0 +1,493 @@
+diff --git a/app.py b/app.py
+index 28e5ef9..c386eb6 100644
+--- a/app.py
++++ b/app.py
+@@ -1,3 +1,4 @@
++import os
+ import numpy as np
+ from PIL import Image
+ from huggingface_hub import snapshot_download
+@@ -6,6 +7,7 @@ from leffa.model import LeffaModel
+ from leffa.inference import LeffaInference
+ from leffa_utils.garment_agnostic_mask_predictor import AutoMasker
+ from leffa_utils.densepose_predictor import DensePosePredictor
++from leffa_utils.mask_fix import get_agnostic_mask_v2
+ from leffa_utils.utils import resize_and_center, list_dir, get_agnostic_mask_hd, get_agnostic_mask_dc, preprocess_garment_image
+ from preprocess.humanparsing.run_parsing import Parsing
+ from preprocess.openpose.run_openpose import OpenPose
+@@ -45,7 +47,7 @@ class LeffaPredictor(object):
+ 
+         vt_model_dc = LeffaModel(
+             pretrained_model_name_or_path="./ckpts/stable-diffusion-inpainting",
+-            pretrained_model="./ckpts/virtual_tryon_dc.pth",
++            pretrained_model=os.environ.get("LEFFA_DC_CKPT", "./ckpts/virtual_tryon_dc.pth"),
+             dtype="float16",
+         )
+         self.vt_inference_dc = LeffaInference(model=vt_model_dc)
+@@ -69,8 +71,14 @@ class LeffaPredictor(object):
+         vt_model_type="viton_hd",
+         vt_garment_type="upper_body",
+         vt_repaint=False,
+-        preprocess_garment=False
++        preprocess_garment=False,
++        garment_length="auto",
++        flare=0.0,
+     ):
++        # VITON-HD weights only learned upper-body garments; any lower/dress
++        # garment on that model gets painted as a top.
++        if control_type == "virtual_tryon" and vt_garment_type != "upper_body":
++            vt_model_type = "dress_code"
+         # Open and resize the source image.
+         src_image = Image.open(src_image_path)
+         src_image = resize_and_center(src_image, 768, 1024)
+@@ -94,10 +102,11 @@ class LeffaPredictor(object):
+             src_image = src_image.convert("RGB")
+             model_parse, _ = self.parsing(src_image.resize((384, 512)))
+             keypoints = self.openpose(src_image.resize((384, 512)))
+-            if vt_model_type == "viton_hd":
+-                mask = get_agnostic_mask_hd(model_parse, keypoints, vt_garment_type)
+-            elif vt_model_type == "dress_code":
+-                mask = get_agnostic_mask_dc(model_parse, keypoints, vt_garment_type)
++            mask = get_agnostic_mask_v2(
++                model_parse, keypoints, vt_garment_type, model_type=vt_model_type,
++                garment_length=None if garment_length in (None, "auto") else garment_length,
++                flare=float(flare or 0.0),
++            )
+             mask = mask.resize((768, 1024))
+         elif control_type == "pose_transfer":
+             mask = Image.fromarray(np.ones_like(src_image_array) * 255)
+@@ -144,7 +153,7 @@ class LeffaPredictor(object):
+         gen_image = output["generated_image"][0]
+         return np.array(gen_image), np.array(mask), np.array(densepose)
+ 
+-    def leffa_predict_vt(self, src_image_path, ref_image_path, ref_acceleration, step, scale, seed, vt_model_type, vt_garment_type, vt_repaint, preprocess_garment):
++    def leffa_predict_vt(self, src_image_path, ref_image_path, ref_acceleration, step, scale, seed, vt_model_type, vt_garment_type, vt_repaint, preprocess_garment, garment_length="auto", flare=0.0):
+         return self.leffa_predict(
+             src_image_path,
+             ref_image_path,
+@@ -157,6 +166,8 @@ class LeffaPredictor(object):
+             vt_garment_type,
+             vt_repaint,
+             preprocess_garment,  # Pass through the new flag.
++            garment_length,
++            flare,
+         )
+ 
+     def leffa_predict_pt(self, src_image_path, ref_image_path, ref_acceleration, step, scale, seed):
+@@ -257,6 +268,16 @@ if __name__ == "__main__":
+                                      ("Dress", "dresses")],
+                             value="upper_body",
+                         )
++                        vt_garment_length = gr.Radio(
++                            label="Target garment length (lower/dress only)",
++                            choices=[("Auto (follow current clothes)", "auto"), ("Mini", "mini"),
++                                     ("Knee", "knee"), ("Midi", "midi"), ("Ankle / long pants", "ankle")],
++                            value="auto",
++                        )
++                        vt_flare = gr.Slider(
++                            label="Flare (0 = straight/pants, 0.6 = very flared skirt)",
++                            minimum=0.0, maximum=0.8, step=0.05, value=0.0,
++                        )
+                         vt_ref_acceleration = gr.Radio(
+                             label="Accelerate Reference UNet (may slightly reduce performance)",
+                             choices=[("True", True), ("False", False)],
+@@ -291,7 +312,8 @@ if __name__ == "__main__":
+                     inputs=[
+                         vt_src_image, vt_ref_image, vt_ref_acceleration,
+                         vt_step, vt_scale, vt_seed, vt_model_type,
+-                        vt_garment_type, vt_repaint, preprocess_garment_checkbox
++                        vt_garment_type, vt_repaint, preprocess_garment_checkbox,
++                        vt_garment_length, vt_flare
+                     ],
+                     outputs=[vt_gen_image, vt_mask, vt_densepose]
+                 )
+diff --git a/leffa_utils/mask_fix.py b/leffa_utils/mask_fix.py
+new file mode 100644
+index 0000000..0b06b6f
+--- /dev/null
++++ b/leffa_utils/mask_fix.py
+@@ -0,0 +1,117 @@
++"""Category-aware mask fixes for Leffa virtual try-on.
++
++Leffa has NO category conditioning: cross-attention is removed, and the only
++signal for "where on the body" is the inpainting mask. Wrong placement is
++almost always a mask problem, not a weights problem.
++
++Fixes on top of leffa_utils.utils.get_agnostic_mask_{hd,dc}:
++1. DressCode lower_body ignores the parsing label "skirt" (5), so a person who
++   is wearing a skirt keeps it and the new garment can't replace it.
++2. Mask is built from the clothes the person is CURRENTLY wearing. Putting a
++   long/flared skirt on someone in slim pants (or long pants on someone in a
++   mini skirt) leaves the mask too small, so the garment gets squeezed or
++   placed wrong. `garment_length` extends the mask using hip/knee/ankle
++   keypoints to the length of the TARGET garment.
++"""
++import cv2
++import numpy as np
++from PIL import Image, ImageDraw
++
++from leffa_utils.utils import get_agnostic_mask_dc, get_agnostic_mask_hd, label_map
++
++# OpenPose-18 indices
++R_HIP, R_KNEE, R_ANKLE, L_HIP, L_KNEE, L_ANKLE = 8, 9, 10, 11, 12, 13
++R_SHOULDER, L_SHOULDER = 2, 5
++
++LOWER_LENGTHS = ("mini", "knee", "midi", "ankle")  # short skirt/shorts -> long skirt/pants
++
++
++def _pt(pose, i):
++    p = pose[i]
++    return None if (p[0] <= 1.0 and p[1] <= 1.0) else (float(p[0]), float(p[1]))
++
++
++def _lerp(a, b, t):
++    return (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)
++
++
++def _leg_end(hip, knee, ankle, length):
++    """Point down the leg where the garment ends."""
++    if length == "mini":
++        return _lerp(hip, knee, 0.55) if knee else None
++    if length == "knee":
++        return knee
++    if length == "midi":
++        return _lerp(knee, ankle, 0.5) if (knee and ankle) else knee
++    return ankle or knee  # ankle
++
++
++def _extension_region(pose, category, length, flare, size):
++    w, h = size
++    canvas = Image.new("L", (w, h), 0)
++    draw = ImageDraw.Draw(canvas)
++    rh, lh = _pt(pose, R_HIP), _pt(pose, L_HIP)
++    if not (rh and lh):
++        return np.zeros((h, w), np.float32)
++
++    rend = _leg_end(rh, _pt(pose, R_KNEE), _pt(pose, R_ANKLE), length)
++    lend = _leg_end(lh, _pt(pose, L_KNEE), _pt(pose, L_ANKLE), length)
++    if not (rend and lend):
++        return np.zeros((h, w), np.float32)
++
++    hip_w = abs(lh[0] - rh[0])
++    pad = hip_w * 0.35  # cover the hip flesh outside the joint points
++    top_y = min(rh[1], lh[1]) - hip_w * 0.35  # up to the waist
++    if category == "dresses":
++        rs, ls = _pt(pose, R_SHOULDER), _pt(pose, L_SHOULDER)
++        if rs and ls:
++            top_y = min(rs[1], ls[1])
++
++    left_x, right_x = min(rh[0], lh[0]) - pad, max(rh[0], lh[0]) + pad
++    bottom_y = max(rend[1], lend[1])
++    # flare > 0 widens the hem (A-line / flared skirts and dresses)
++    spread = hip_w * flare
++    hem_l = min(rend[0], lend[0]) - pad - spread
++    hem_r = max(rend[0], lend[0]) + pad + spread
++    draw.polygon([(left_x, top_y), (right_x, top_y), (hem_r, bottom_y), (hem_l, bottom_y)], fill=255)
++    return np.array(canvas, np.float32) / 255.0
++
++
++def get_agnostic_mask_v2(model_parse, keypoint, category, model_type="dress_code",
++                         garment_length=None, flare=0.0, size=(384, 512)):
++    """Drop-in replacement for get_agnostic_mask_{hd,dc}.
++
++    category: "upper_body" | "lower_body" | "dresses"
++    garment_length: None (old behaviour) or one of LOWER_LENGTHS, for the TARGET garment
++    flare: 0.0 = straight (pants, pencil skirt) ... 0.6 = very flared skirt/dress
++    """
++    base_fn = get_agnostic_mask_dc if model_type == "dress_code" else get_agnostic_mask_hd
++    mask = np.array(base_fn(model_parse, keypoint, category, size=size)).astype(np.float32) / 255.0
++    if mask.ndim == 3:
++        mask = mask[..., 0]
++
++    parse = np.array(model_parse)
++    pose = np.array(keypoint["pose_keypoints_2d"], dtype=np.float32).reshape(-1, 2)
++    dil = np.ones((10, 10), np.uint8)
++
++    add = np.zeros_like(mask)
++    if category in ("lower_body", "dresses"):
++        # Fix 1: current skirt / pants / dress must always be replaceable
++        cur = np.isin(parse, [label_map["skirt"], label_map["pants"]]).astype(np.float32)
++        if category == "dresses":
++            cur += (parse == label_map["dress"])
++        add = np.maximum(add, cv2.dilate(cur, dil, iterations=3))
++        # Fix 2: extend to the target garment's length/shape
++        if garment_length is not None:
++            assert garment_length in LOWER_LENGTHS, garment_length
++            add = np.maximum(add, _extension_region(pose, category, garment_length, flare, size))
++
++    # never paint over things that must stay
++    keep = np.isin(parse, [label_map["head"], label_map["hair"], label_map["left_shoe"],
++                           label_map["right_shoe"], label_map["bag"], label_map["hat"]])
++    if category == "lower_body":
++        keep |= np.isin(parse, [label_map["upper_clothes"], label_map["left_arm"], label_map["right_arm"]])
++    add[keep] = 0
++
++    out = np.clip(mask + add, 0, 1)
++    return Image.fromarray((out > 0.5).astype(np.uint8) * 255)
+diff --git a/prepare_data.py b/prepare_data.py
+new file mode 100644
+index 0000000..b5fed71
+--- /dev/null
++++ b/prepare_data.py
+@@ -0,0 +1,81 @@
++"""Precompute everything Leffa needs per training sample, using the SAME
++predictors as inference (app.py), so train and test inputs match exactly.
++
++Input folder layout:
++  data_raw/
++    metadata.jsonl   # one line per pair:
++                     # {"person": "p001.jpg", "garment": "g001.png",
++                     #  "category": "lower_body", "garment_length": "midi", "flare": 0.4}
++    images/...       # paths in metadata are relative to data_raw/
++
++`person` MUST be a photo of someone already wearing `garment` (that is the
++ground truth). category: upper_body | lower_body | dresses.
++
++Output: data_prep/<id>/{person.png, garment.png, mask.png, densepose.png}
++        + data_prep/index.jsonl
++
++Run (GPU recommended, from the Leffa repo root, after app.py has downloaded ./ckpts):
++  python prepare_data.py --src data_raw --dst data_prep
++"""
++import argparse
++import json
++import os
++
++import numpy as np
++from PIL import Image
++from tqdm import tqdm
++
++from leffa_utils.densepose_predictor import DensePosePredictor
++from leffa_utils.mask_fix import get_agnostic_mask_v2
++from leffa_utils.utils import resize_and_center
++from preprocess.humanparsing.run_parsing import Parsing
++from preprocess.openpose.run_openpose import OpenPose
++
++
++def main():
++    ap = argparse.ArgumentParser()
++    ap.add_argument("--src", required=True)
++    ap.add_argument("--dst", required=True)
++    ap.add_argument("--ckpts", default="./ckpts")
++    args = ap.parse_args()
++
++    c = args.ckpts
++    parsing = Parsing(atr_path=f"{c}/humanparsing/parsing_atr.onnx", lip_path=f"{c}/humanparsing/parsing_lip.onnx")
++    openpose = OpenPose(body_model_path=f"{c}/openpose/body_pose_model.pth")
++    densepose = DensePosePredictor(config_path=f"{c}/densepose/densepose_rcnn_R_50_FPN_s1x.yaml",
++                                   weights_path=f"{c}/densepose/model_final_162be9.pkl")
++
++    os.makedirs(args.dst, exist_ok=True)
++    rows = [json.loads(l) for l in open(os.path.join(args.src, "metadata.jsonl")) if l.strip()]
++    out_index = open(os.path.join(args.dst, "index.jsonl"), "w")
++    skipped = 0
++    for i, r in enumerate(tqdm(rows)):
++        try:
++            person = resize_and_center(Image.open(os.path.join(args.src, r["person"])), 768, 1024).convert("RGB")
++            garment = resize_and_center(Image.open(os.path.join(args.src, r["garment"])), 768, 1024).convert("RGB")
++            small = person.resize((384, 512))
++            parse, _ = parsing(small)
++            kp = openpose(small)
++            mask = get_agnostic_mask_v2(parse, kp, r["category"], model_type="dress_code",
++                                        garment_length=r.get("garment_length"),
++                                        flare=float(r.get("flare", 0.0))).resize((768, 1024))
++            # DressCode-style densepose (same as app.py dress_code branch)
++            iuv = densepose.predict_iuv(np.array(person))
++            dp = Image.fromarray(np.concatenate([iuv[:, :, 0:1]] * 3, axis=-1))
++        except Exception as e:  # missing keypoints, unreadable file, ...
++            skipped += 1
++            print(f"skip {r.get('person')}: {e}")
++            continue
++
++        sid = f"{i:06d}"
++        d = os.path.join(args.dst, sid)
++        os.makedirs(d, exist_ok=True)
++        person.save(f"{d}/person.png"); garment.save(f"{d}/garment.png")
++        mask.save(f"{d}/mask.png"); dp.save(f"{d}/densepose.png")
++        out_index.write(json.dumps({"id": sid, "category": r["category"]}) + "\n")
++    out_index.close()
++    print(f"done: {len(rows) - skipped} samples, {skipped} skipped")
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/train_vton.py b/train_vton.py
+new file mode 100644
+index 0000000..737bef2
+--- /dev/null
++++ b/train_vton.py
+@@ -0,0 +1,174 @@
++"""Fine-tune Leffa virtual try-on (DressCode checkpoint) on your own data.
++
++Official repo ships inference only. This reproduces the paper's stage
++"diffusion loss" fine-tune (AdamW, lr 1e-5) on top of virtual_tryon_dc.pth,
++reusing LeffaModel / LeffaTransform so tensors match inference exactly.
++The Leffa attention-flow loss (lambda 1e-3, t<500) is NOT included: it sharpens
++texture detail, it does not change WHERE the garment goes. Placement is learned
++from the mask + densepose + diffusion loss.
++
++Data: output of prepare_data.py.
++
++Recommended (A100 40/80GB, Colab Pro / Kaggle won't fit full-res T4):
++  accelerate launch train_vton.py --data data_prep --out runs/ft1 \
++      --steps 3000 --batch 2 --grad_accum 8 --lr 1e-5
++
++Smoke test on a small GPU (low res, just to see the loss drop):
++  python train_vton.py --data data_prep --out runs/smoke --height 512 --width 384 \
++      --steps 50 --batch 1 --train_ref_unet false
++"""
++import argparse
++import json
++import math
++import os
++import random
++
++import torch
++import torch.nn.functional as F
++from PIL import Image
++from torch.utils.data import DataLoader, Dataset
++
++from leffa.model import LeffaModel
++from leffa.transform import LeffaTransform
++
++
++def str2bool(v):
++    return str(v).lower() in ("1", "true", "yes", "y")
++
++
++class TryOnDataset(Dataset):
++    def __init__(self, root, flip=True):
++        self.root = root
++        self.items = [json.loads(l) for l in open(os.path.join(root, "index.jsonl")) if l.strip()]
++        self.flip = flip
++
++    def __len__(self):
++        return len(self.items)
++
++    def __getitem__(self, i):
++        d = os.path.join(self.root, self.items[i]["id"])
++        ims = {k: Image.open(f"{d}/{n}") for k, n in
++               [("src_image", "person.png"), ("ref_image", "garment.png"),
++                ("mask", "mask.png"), ("densepose", "densepose.png")]}
++        if self.flip and random.random() < 0.5:  # same flip for all 4 keeps them aligned
++            ims = {k: v.transpose(Image.FLIP_LEFT_RIGHT) for k, v in ims.items()}
++        return ims
++
++
++def collate(batch):
++    return {k: [b[k] for b in batch] for k in batch[0]}
++
++
++def main():
++    ap = argparse.ArgumentParser()
++    ap.add_argument("--data", required=True)
++    ap.add_argument("--out", required=True)
++    ap.add_argument("--base", default="./ckpts/stable-diffusion-inpainting")
++    ap.add_argument("--init", default="./ckpts/virtual_tryon_dc.pth")
++    ap.add_argument("--height", type=int, default=1024)
++    ap.add_argument("--width", type=int, default=768)
++    ap.add_argument("--steps", type=int, default=3000)
++    ap.add_argument("--batch", type=int, default=2)
++    ap.add_argument("--grad_accum", type=int, default=8)
++    ap.add_argument("--lr", type=float, default=1e-5)
++    ap.add_argument("--ref_drop", type=float, default=0.1, help="CFG: prob. of zeroing the garment latent")
++    ap.add_argument("--train_ref_unet", type=str2bool, default=True,
++                    help="false = freeze reference UNet (half the memory, still fixes placement)")
++    ap.add_argument("--save_every", type=int, default=500)
++    ap.add_argument("--seed", type=int, default=42)
++    args = ap.parse_args()
++
++    from accelerate import Accelerator
++    acc = Accelerator(gradient_accumulation_steps=args.grad_accum, mixed_precision="bf16")
++    torch.manual_seed(args.seed)
++    os.makedirs(args.out, exist_ok=True)
++
++    # fp32 master weights; bf16 autocast via accelerate
++    model = LeffaModel(pretrained_model_name_or_path=args.base, pretrained_model=args.init,
++                       height=args.height, width=args.width, dtype="float32")
++    model.vae.requires_grad_(False)
++    model.unet.requires_grad_(True)
++    model.unet_encoder.requires_grad_(args.train_ref_unet)
++    # Leffa's custom UNet blocks use the old diffusers flag API, so set the
++    # flag directly on every submodule instead of enable_gradient_checkpointing()
++    n_ckpt = 0
++    for unet in (model.unet, model.unet_encoder):
++        for sub in unet.modules():
++            if hasattr(sub, "gradient_checkpointing"):
++                sub.gradient_checkpointing = True
++                n_ckpt += 1
++    acc.print(f"gradient checkpointing on {n_ckpt} modules")
++
++    params = [p for p in model.parameters() if p.requires_grad]
++    try:
++        import bitsandbytes as bnb
++        opt = bnb.optim.AdamW8bit(params, lr=args.lr, weight_decay=1e-2)
++    except ImportError:
++        opt = torch.optim.AdamW(params, lr=args.lr, weight_decay=1e-2)
++
++    ds = TryOnDataset(args.data)
++    dl = DataLoader(ds, batch_size=args.batch, shuffle=True, num_workers=4, collate_fn=collate, drop_last=True)
++    transform = LeffaTransform(height=args.height, width=args.width)
++    model, opt, dl = acc.prepare(model, opt, dl)
++    m = acc.unwrap_model(model)
++    sched = m.noise_scheduler
++    sf = m.vae.config.scaling_factor
++
++    step, epoch = 0, 0
++    model.train()
++    while step < args.steps:
++        epoch += 1
++        for raw in dl:
++            b = transform(raw)
++            src, ref = b["src_image"].to(acc.device), b["ref_image"].to(acc.device)
++            mask, dp = b["mask"].to(acc.device), b["densepose"].to(acc.device)
++            with acc.accumulate(model), acc.autocast():
++                with torch.no_grad():
++                    vae = m.vae
++                    tgt_lat = vae.encode(src).latent_dist.sample() * sf
++                    masked_lat = vae.encode(src * (mask < 0.5)).latent_dist.sample() * sf
++                    ref_lat = vae.encode(ref).latent_dist.sample() * sf
++                mask_lat = F.interpolate(mask, size=masked_lat.shape[-2:], mode="nearest")
++                dp_lat = F.interpolate(dp, size=masked_lat.shape[-2:], mode="nearest")
++
++                # classifier-free guidance training (inference uses zeros as "uncond")
++                drop = (torch.rand(ref_lat.shape[0], 1, 1, 1, device=acc.device) < args.ref_drop)
++                ref_lat = torch.where(drop, torch.zeros_like(ref_lat), ref_lat)
++
++                noise = torch.randn_like(tgt_lat)
++                t = torch.randint(0, sched.config.num_train_timesteps, (tgt_lat.shape[0],), device=acc.device)
++                noisy = sched.add_noise(tgt_lat, noise, t)
++                x = torch.cat([noisy, mask_lat, masked_lat, dp_lat], dim=1)
++
++                _, ref_feats = m.unet_encoder(ref_lat, t, encoder_hidden_states=None, return_dict=False)
++                pred = m.unet(x, t, encoder_hidden_states=None, cross_attention_kwargs=None,
++                              added_cond_kwargs=None, reference_features=list(ref_feats), return_dict=False)[0]
++
++                if sched.config.prediction_type == "v_prediction":
++                    target = sched.get_velocity(tgt_lat, noise, t)
++                else:
++                    target = noise
++                loss = F.mse_loss(pred.float(), target.float())
++                acc.backward(loss)
++                if acc.sync_gradients:
++                    acc.clip_grad_norm_(params, 1.0)
++                opt.step()
++                opt.zero_grad(set_to_none=True)
++
++            if acc.sync_gradients:
++                step += 1
++                if step % 10 == 0:
++                    acc.print(f"epoch {epoch} step {step}/{args.steps} loss {loss.item():.4f}")
++                if step % args.save_every == 0 or step == args.steps:
++                    acc.wait_for_everyone()
++                    if acc.is_main_process:
++                        sd = {k: v.to(torch.float16) for k, v in acc.unwrap_model(model).state_dict().items()}
++                        path = os.path.join(args.out, f"virtual_tryon_dc_ft_{step}.pth")
++                        torch.save(sd, path)
++                        acc.print(f"saved {path}")
++                if step >= args.steps:
++                    break
++
++
++if __name__ == "__main__":
++    main()

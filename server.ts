@@ -15,6 +15,24 @@ const GEMINI_VISION_MODEL = process.env.GEMINI_VISION_MODEL || 'gemini-3.5-flash
 // Body parser limits for base64 image data (Virtual Try-on photos)
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+// Self-hosted try-on (FASHN or Leffa, see server.py). Set VTON_BACKEND_URL
+// (e.g. http://localhost:8000) to use it; otherwise the Gemini router handles /tryon.
+const VTON_BACKEND_URL = process.env.VTON_BACKEND_URL;
+if (VTON_BACKEND_URL) {
+  app.post('/api/vton/tryon', async (req, res) => {
+    try {
+      const r = await fetch(new URL('/api/vton/tryon', VTON_BACKEND_URL), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(req.body),
+      });
+      const data = await r.json().catch(() => ({ error: `VTON backend returned ${r.status}` }));
+      res.status(r.status).json(data);
+    } catch (e: any) {
+      res.status(502).json({ error: `VTON backend unreachable at ${VTON_BACKEND_URL}: ${e.message}` });
+    }
+  });
+}
 app.use('/api/vton', vtonRouter);
 
 // Lazy initialize Gemini client
