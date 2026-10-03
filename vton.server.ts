@@ -81,7 +81,9 @@ vtonRouter.post('/body', async (req, res) => {
 // Step 2: body image + garments -> try-on render
 vtonRouter.post('/tryon', async (req, res) => {
   try {
-    const { bodyImage, garments, fitStyle = 'regular', tuckStyle = 'untucked', background = 'plain white' } = req.body;
+    const { garments, fitStyle = 'regular', tuckStyle = 'untucked', background = 'plain white' } = req.body;
+    // the try-on page sends personImage; older callers send bodyImage
+    const bodyImage = req.body.bodyImage ?? req.body.personImage;
     if (typeof bodyImage !== 'string' || !bodyImage) {
       return res.status(400).json({ error: 'Body image is required.' });
     }
