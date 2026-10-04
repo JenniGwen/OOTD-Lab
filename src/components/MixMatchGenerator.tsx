@@ -153,6 +153,22 @@ function clamp(value: number, min = 0, max = 100): number {
   return Math.max(min, Math.min(max, value));
 }
 
+function normalizeWeightedDimension(value: unknown, maximum: number): number {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) return 0;
+  const points = numericValue > maximum ? numericValue * maximum / 100 : numericValue;
+  return Math.round(clamp(points, 0, maximum));
+}
+
+function normalizeBreakdown(breakdown: any) {
+  return {
+    completeness: normalizeWeightedDimension(breakdown?.completeness, 20),
+    color: normalizeWeightedDimension(breakdown?.color, 40),
+    style: normalizeWeightedDimension(breakdown?.style, 20),
+    context: normalizeWeightedDimension(breakdown?.context, 20),
+  };
+}
+
 // Helper hook for drag/swipe gesture
 function useHorizontalSwipe(onSwipeLeft: () => void, onSwipeRight: () => void) {
   const touchStartX = useRef<number | null>(null);
@@ -236,17 +252,17 @@ export const MixMatchGenerator: React.FC<MixMatchGeneratorProps> = ({
   const [topIndex, setTopIndex] = useState<number>(() => {
     if (initialTop) {
       const idx = tops.findIndex((i) => i.id === initialTop.id);
-      return idx >= 0 ? idx : 0;
+      return idx >= 0 ? idx : -1;
     }
-    return tops.length > 0 ? 0 : -1;
+    return -1;
   });
 
   const [bottomIndex, setBottomIndex] = useState<number>(() => {
     if (initialBottom) {
       const idx = bottoms.findIndex((i) => i.id === initialBottom.id);
-      return idx >= 0 ? idx : 0;
+      return idx >= 0 ? idx : -1;
     }
-    return bottoms.length > 0 ? 0 : -1;
+    return -1;
   });
 
   const [outerwearIndex, setOuterwearIndex] = useState<number>(-1);
@@ -256,13 +272,15 @@ export const MixMatchGenerator: React.FC<MixMatchGeneratorProps> = ({
   const MAX_ACC = 5;
 
   // Active outfit metadata
-  const [outfitName, setOutfitName] = useState('Monochrome Minimalist');
-  const [occasion, setOccasion] = useState('Daily & Coffee Meetup');
+  const [outfitName, setOutfitName] = useState('');
+  const [occasion, setOccasion] = useState('Casual');
 
   // AI Recommender state
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [aiRecommendations, setAiRecommendations] = useState<AiOutfitRecommendation[]>([]);
   const [aiError, setAiError] = useState<string | null>(null);
+  const [geminiHarmony, setGeminiHarmony] = useState<ColorHarmony | null>(null);
+  const [isGeminiHarmonyLoading, setIsGeminiHarmonyLoading] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
   const [justLogged, setJustLogged] = useState(false);
 
@@ -300,30 +318,100 @@ export const MixMatchGenerator: React.FC<MixMatchGeneratorProps> = ({
     return () => { isActive = false; };
   }, [selectedColorItems]);
 
+  useEffect(() => {
+    if (selectedColorItems.length === 0) {
+      setGeminiHarmony(null);
+      setIsGeminiHarmonyLoading(false);
+      return;
+    }
+
+    let isActive = true;
+    setIsGeminiHarmonyLoading(true);
+    const loadGeminiHarmony = async () => {
+      try {
+        const itemsWithImageData = await Promise.all(selectedColorItems.map(async (item) => {
+          try {
+            const response = await fetch(item.imageUrl);
+            const blob = await response.blob();
+            const imageBase64 = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(String(reader.result));
+              reader.onerror = () => reject(new Error('Failed to read image'));
+              reader.readAsDataURL(blob);
+            });
+            return { ...item, imageBase64 };
+          } catch {
+            return { ...item, imageBase64: undefined };
+          }
+        }));
+
+        const response = await fetch('/api/ai/analyze-harmony', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items: itemsWithImageData, occasion }),
+        });
+
+        if (!response.ok) throw new Error('Gemini harmony analysis failed');
+        const data = await response.json();
+
+        if (!isActive) return;
+        setGeminiHarmony({
+          score: typeof data.score === 'number' ? data.score : null,
+          harmonyType: 'Evaluasi objektif',
+          verdict: Array.isArray(data.reasons) && data.reasons.length > 0
+            ? data.reasons.join(' ')
+            : 'Gemini tidak memberikan alasan tambahan.',
+          tips: String(data.suggestion ?? 'Lengkapi metadata outfit untuk evaluasi yang lebih akurat.'),
+          breakdown: normalizeBreakdown(data.breakdown),
+          applied_caps: Array.isArray(data.applied_caps) ? data.applied_caps : [],
+          missing_fields: Array.isArray(data.missing_fields) ? data.missing_fields : [],
+          confidence: ['high', 'medium', 'low'].includes(data.confidence) ? data.confidence : 'low',
+          reasons: Array.isArray(data.reasons) ? data.reasons : [],
+          suggestion: String(data.suggestion ?? ''),
+          palette: selectedColorItems.map((item) => ({
+            itemId: item.id,
+            name: item.name,
+            category: item.category,
+            hexColor: resolveColorHex(item.hexColor, item.color, sampledColors[item.id]) || '#808080',
+          })),
+        });
+        setIsGeminiHarmonyLoading(false);
+      } catch {
+        if (isActive) {
+          setGeminiHarmony(null);
+          setIsGeminiHarmonyLoading(false);
+        }
+      }
+    };
+
+    void loadGeminiHarmony();
+    return () => { isActive = false; };
+  }, [selectedColorItems, sampledColors, occasion]);
+
   // Swipe navigation functions for each section
   const nextTop = () => {
     if (tops.length === 0) return;
-    setTopIndex((prev) => (prev + 1) % tops.length);
+    setTopIndex((prev) => (prev === -1 ? 0 : (prev + 1) % tops.length));
   };
   const prevTop = () => {
     if (tops.length === 0) return;
-    setTopIndex((prev) => (prev - 1 + tops.length) % tops.length);
+    setTopIndex((prev) => (prev === -1 ? tops.length - 1 : (prev - 1 + tops.length) % tops.length));
   };
 
   const nextBottom = () => {
     if (bottoms.length === 0) return;
-    setBottomIndex((prev) => (prev + 1) % bottoms.length);
+    setBottomIndex((prev) => (prev === -1 ? 0 : (prev + 1) % bottoms.length));
   };
   const prevBottom = () => {
     if (bottoms.length === 0) return;
-    setBottomIndex((prev) => (prev - 1 + bottoms.length) % bottoms.length);
+    setBottomIndex((prev) => (prev === -1 ? bottoms.length - 1 : (prev - 1 + bottoms.length) % bottoms.length));
   };
 
   const nextOuterwear = () => {
     // Cycles through: -1 (Tanpa Luaran) -> 0 -> 1 ... -> -1
     const total = outerwears.length;
     if (total === 0) return;
-    setOuterwearIndex((prev) => (prev + 1 >= total ? -1 : prev + 1));
+    setOuterwearIndex((prev) => (prev === -1 ? 0 : (prev + 1 >= total ? -1 : prev + 1)));
   };
   const prevOuterwear = () => {
     const total = outerwears.length;
@@ -334,7 +422,7 @@ export const MixMatchGenerator: React.FC<MixMatchGeneratorProps> = ({
   const nextShoes = () => {
     const total = shoes.length;
     if (total === 0) return;
-    setShoesIndex((prev) => (prev + 1 >= total ? -1 : prev + 1));
+    setShoesIndex((prev) => (prev === -1 ? 0 : (prev + 1 >= total ? -1 : prev + 1)));
   };
   const prevShoes = () => {
     const total = shoes.length;
@@ -489,6 +577,24 @@ export const MixMatchGenerator: React.FC<MixMatchGeneratorProps> = ({
     };
   }, [selectedColorItems, sampledColors]);
 
+  const effectiveColorAnalysis = useMemo<ColorHarmony>(() => {
+    if (geminiHarmony && selectedColorItems.length > 0) {
+      return geminiHarmony;
+    }
+
+    if (selectedColorItems.length > 0) {
+      return {
+        score: null,
+        harmonyType: 'Menunggu evaluasi Gemini',
+        verdict: 'Skor tidak tersedia sebelum Gemini menyelesaikan evaluasi.',
+        tips: 'Pastikan server Gemini aktif dan metadata outfit sudah lengkap.',
+        palette: colorAnalysis.palette,
+      };
+    }
+
+    return colorAnalysis;
+  }, [colorAnalysis, geminiHarmony, selectedColorItems.length]);
+
   // Trigger AI Outfit Recommender
   const handleGenerateAiRecommendation = async () => {
     setIsAiLoading(true);
@@ -575,10 +681,10 @@ export const MixMatchGenerator: React.FC<MixMatchGeneratorProps> = ({
       occasion,
       wearCount: 0,
       createdAt: new Date().toISOString(),
-      score: colorAnalysis.score,
-      colorHarmony: colorAnalysis,
-      reasoning: colorAnalysis.verdict,
-      stylingTips: [colorAnalysis.tips],
+      score: effectiveColorAnalysis.score ?? undefined,
+      colorHarmony: effectiveColorAnalysis,
+      reasoning: effectiveColorAnalysis.verdict,
+      stylingTips: [effectiveColorAnalysis.tips],
     };
 
     onSaveOutfit(newOutfit);
@@ -617,10 +723,10 @@ export const MixMatchGenerator: React.FC<MixMatchGeneratorProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 pb-6 border-b border-[#C8D9A5]">
         <div>
           <h2 className="font-editorial text-3xl sm:text-4xl font-normal text-[#191919] tracking-tight">
-            Studio Padu-Padan Manekin
+            Mix-Match Studio
           </h2>
           <p className="text-xs sm:text-sm text-[#96948B] mt-1 font-light max-w-xl">
-            Geser pakaian langsung pada tubuh manekin untuk menyusun komposisi busana arsip Anda.
+           Create your favorite outfit of the day here!.
           </p>
         </div>
 
@@ -910,7 +1016,7 @@ export const MixMatchGenerator: React.FC<MixMatchGeneratorProps> = ({
                     {selectedTop?.name || 'Top'} / {selectedBottom?.name || 'Bottom'}
                   </span>
                 <span className="text-[#7A2117] shrink-0 font-medium">
-                  {colorAnalysis.score}% HARMONY
+                  {effectiveColorAnalysis.score ?? '--'}% GEMINI RESULT
                 </span>
               </div>
             </div>
@@ -924,12 +1030,29 @@ export const MixMatchGenerator: React.FC<MixMatchGeneratorProps> = ({
             <div className="flex items-center justify-between pb-3 border-b border-[#C8D9A5]">
               <div>
                 <h3 className="font-editorial text-2xl font-normal text-[#191919]">
-                  Harmoni Warna Busana
+                  Outfit Check
                 </h3>
+                <div className="mt-1 flex items-center gap-1.5 text-[10px] font-editorial-mono uppercase text-[#7A2117]">
+                  {isGeminiHarmonyLoading ? (
+                    <>
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      <span>Gemini sedang menganalisis...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="h-3 w-3" />
+                      <span>Analisis berbasis Gemini</span>
+                    </>
+                  )}
+                </div>
               </div>
               <div className="text-right">
-                <span className="font-editorial text-3xl text-[#191919] leading-none">{colorAnalysis.score}%</span>
-                <span className="block text-[10px] font-editorial-mono text-[#7A2117] uppercase">Match Score</span>
+                <span className="font-editorial text-3xl text-[#191919] leading-none">
+                  {isGeminiHarmonyLoading ? '...' : `${effectiveColorAnalysis.score ?? '--'}%`}
+                </span>
+                <span className="block text-[10px] font-editorial-mono text-[#7A2117] uppercase">
+                  {isGeminiHarmonyLoading ? 'Processing' : 'Score'}
+                </span>
               </div>
             </div>
 
@@ -937,17 +1060,17 @@ export const MixMatchGenerator: React.FC<MixMatchGeneratorProps> = ({
             <div className="w-full bg-[#191919]/10 h-1.5 overflow-hidden">
               <div
                 className="h-full bg-[#7A2117] transition-all duration-500"
-                style={{ width: `${colorAnalysis.score}%` }}
+                style={{ width: `${effectiveColorAnalysis.score ?? 0}%` }}
               />
             </div>
 
             <div className="bg-[#F9F8F5] p-4 border border-[#E8E6DD] space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <span className="bg-[#F2F7E8] px-3 py-1 text-xs font-semibold text-[#41483A]">
-                  {colorAnalysis.harmonyType}
+                  {effectiveColorAnalysis.harmonyType}
                 </span>
                 <div className="flex items-center gap-1.5" aria-label="Warna outfit terpilih">
-                  {colorAnalysis.palette.map((color) => (
+                  {effectiveColorAnalysis.palette.map((color) => (
                     <span
                       key={color.itemId}
                       className="h-5 w-5 border border-black/10"
@@ -957,8 +1080,33 @@ export const MixMatchGenerator: React.FC<MixMatchGeneratorProps> = ({
                   ))}
                 </div>
               </div>
-              <p className="text-xs font-bold text-[#191919] font-editorial-mono">{colorAnalysis.verdict}</p>
-              <p className="text-xs text-[#96948B] leading-relaxed font-light">{colorAnalysis.tips}</p>
+              <p className="text-xs font-bold text-[#191919] font-editorial-mono">{effectiveColorAnalysis.verdict}</p>
+              <p className="text-xs text-[#96948B] leading-relaxed font-light">{effectiveColorAnalysis.tips}</p>
+              {effectiveColorAnalysis.breakdown && (
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1 border-t border-[#E8E6DD] pt-3 text-[11px] text-[#66635C]">
+                  {[
+                    ['Kelengkapan', effectiveColorAnalysis.breakdown.completeness, 20],
+                    ['Warna', effectiveColorAnalysis.breakdown.color, 40],
+                    ['Gaya & formalitas', effectiveColorAnalysis.breakdown.style, 20],
+                    ['Konteks', effectiveColorAnalysis.breakdown.context, 20],
+                  ].map(([label, value, maximum]) => (
+                    <div key={String(label)} className="flex items-center justify-between gap-2">
+                      <span>{label}</span>
+                      <span className="font-editorial-mono text-[#191919]">{value}/{maximum}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {(effectiveColorAnalysis.applied_caps?.length ?? 0) > 0 && (
+                <p className="text-[11px] leading-relaxed text-[#7A2117]">
+                  Batas diterapkan: {effectiveColorAnalysis.applied_caps?.join('; ')}
+                </p>
+              )}
+              {effectiveColorAnalysis.confidence && (
+                <p className="text-[10px] font-editorial-mono uppercase text-[#96948B]">
+                  Confidence: {effectiveColorAnalysis.confidence}
+                </p>
+              )}
             </div>
 
             {/* Outfit Name & Occasion */}
@@ -971,20 +1119,23 @@ export const MixMatchGenerator: React.FC<MixMatchGeneratorProps> = ({
                   type="text"
                   value={outfitName}
                   onChange={(e) => setOutfitName(e.target.value)}
-                  placeholder="Contoh: Monokromatik Santai"
+                  placeholder="Masukkan nama konsep outfit"
                   className="w-full rounded-xl px-3.5 py-2.5 text-sm bg-[#F9F8F5] border border-[#E8E6DD] focus:outline-none focus:border-[#AFC58C] focus:ring-2 focus:ring-[#AFC58C]/30"
                 />
               </div>
 
               <div>
                 <label className="block text-[11px] font-editorial-mono text-[#96948B] mb-1 uppercase">
-                  Acara / Occasion
+                  Konteks Penilaian / Occasion
                 </label>
+                <p className="mb-1.5 text-[10px] leading-relaxed text-[#96948B]">
+                  Tulis acara agar Gemini menilai outfit sesuai konteks, misalnya kantor, pesta, atau harian.
+                </p>
                 <input
                   type="text"
                   value={occasion}
                   onChange={(e) => setOccasion(e.target.value)}
-                  placeholder="Casual, Formal, Gallery"
+                  placeholder="Contoh: Casual, kantor, pesta, atau daily wear"
                   className="w-full rounded-xl px-3.5 py-2.5 text-sm bg-[#F9F8F5] border border-[#E8E6DD] focus:outline-none focus:border-[#AFC58C] focus:ring-2 focus:ring-[#AFC58C]/30"
                 />
               </div>
@@ -1122,7 +1273,7 @@ export const MixMatchGenerator: React.FC<MixMatchGeneratorProps> = ({
                         <p className="text-[10px] text-[#96948B]">
                           {typeof outfit.colorHarmony === 'string'
                             ? outfit.colorHarmony
-                            : `${outfit.colorHarmony.harmonyType} · ${outfit.colorHarmony.score}%`}
+                            : `${outfit.colorHarmony.harmonyType} · ${outfit.colorHarmony.score ?? '--'}%`}
                         </p>
                       )}
 

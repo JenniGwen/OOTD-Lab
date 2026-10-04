@@ -139,10 +139,10 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onSav
   const [color, setColor] = useState('');
   const [hexColor, setHexColor] = useState('#171717');
   const [material, setMaterial] = useState('');
-  const [style, setStyle] = useState('Minimalist Casual');
+  const [style, setStyle] = useState('');
   const [brand, setBrand] = useState('');
-  const [size, setSize] = useState('M');
-  const [purchasePrice, setPurchasePrice] = useState<number>(250000);
+  const [size, setSize] = useState('');
+  const [purchasePrice, setPurchasePrice] = useState<number>(0);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [processingStage, setProcessingStage] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -257,7 +257,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onSav
       hexColor: hexColor || '#171717',
       imageUrl: imagePreview,
       material: material.trim() || 'Katun',
-      style: style.trim() || 'Minimalist Casual',
+      style: style.trim(),
       purchasePrice: Number(purchasePrice) || 0,
       wearCount: 0,
       lastWornDate: new Date().toISOString(),
@@ -269,15 +269,6 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onSav
 
     onSaveItem(newItem);
     onClose();
-  };
-
-  const applyQuickTemplate = (templateUrl: string, templateName: string, cat: ClothingCategory, col: string, hex: string) => {
-    setImagePreview(templateUrl);
-    setName(templateName);
-    setCategory(cat);
-    setColor(col);
-    setHexColor(hex);
-    setSubCategory(templateName.split(' ')[0]);
   };
 
   return (
@@ -312,8 +303,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onSav
           <div>
             <div className="label mb-2">Foto Pakaian</div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Drop Area */}
+            <div className="grid grid-cols-1 gap-4">
               <div
                 onClick={() => fileInputRef.current?.click()}
                 className={`relative border border-dashed p-4 flex flex-col items-center justify-center cursor-pointer transition-all ${
@@ -357,105 +347,16 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onSav
                 )}
               </div>
 
-              {/* Quick Sample Presets */}
-              <div className="bg-[#F4F1E5]/50 p-3.5 border border-[#C8D9A5] flex flex-col justify-between">
-                <div>
-                  <div className="label mb-2">Contoh Cepat</div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        applyQuickTemplate(
-                          'https://images.unsplash.com/photo-1618354691373-d851c5c3a990?auto=format&fit=crop&w=500&q=80',
-                          'Kaos Basic Katun Hitam',
-                          'Atasan',
-                          'Hitam',
-                          '#0F172A'
-                        )
-                      }
-                      className="p-2 bg-white border border-[#C8D9A5] hover:border-[#C8D9A5] text-left transition-all flex items-center gap-2 cursor-pointer"
-                    >
-                      <div className="w-6 h-6 bg-[#0F172A] shrink-0" />
-                      <div className="truncate">
-                        <p className="font-editorial text-sm text-[#191919] truncate leading-none">Kaos Hitam</p>
-                        <p className="label text-[9px]">Atasan</p>
-                      </div>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        applyQuickTemplate(
-                          'https://images.unsplash.com/photo-1598033129183-c4f50c736f10?auto=format&fit=crop&w=500&q=80',
-                          'Kemeja Sand Beige Linen',
-                          'Atasan',
-                          'Sand Beige',
-                          '#E8DFD1'
-                        )
-                      }
-                      className="p-2 bg-white border border-[#C8D9A5] hover:border-[#C8D9A5] text-left transition-all flex items-center gap-2 cursor-pointer"
-                    >
-                      <div className="w-6 h-6 bg-[#E8DFD1] border border-[#C8D9A5] shrink-0" />
-                      <div className="truncate">
-                        <p className="font-editorial text-sm text-[#191919] truncate leading-none">Kemeja Beige</p>
-                        <p className="label text-[9px]">Atasan</p>
-                      </div>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        applyQuickTemplate(
-                          'https://images.unsplash.com/photo-1542272604-780c96856592?auto=format&fit=crop&w=500&q=80',
-                          'Jeans Ripped Denim Vintage',
-                          'Bawahan',
-                          'Biru Indigo',
-                          '#1E3A8A'
-                        )
-                      }
-                      className="p-2 bg-white border border-[#C8D9A5] hover:border-[#C8D9A5] text-left transition-all flex items-center gap-2 cursor-pointer"
-                    >
-                      <div className="w-6 h-6 bg-[#1E3A8A] shrink-0" />
-                      <div className="truncate">
-                        <p className="font-editorial text-sm text-[#191919] truncate leading-none">Jeans Denim</p>
-                        <p className="label text-[9px]">Bawahan</p>
-                      </div>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        applyQuickTemplate(
-                          'https://images.unsplash.com/photo-1548883354-7622d03aca27?auto=format&fit=crop&w=500&q=80',
-                          'Jaket Parka Olive Minimal',
-                          'Luaran',
-                          'Olive Sand',
-                          '#4A5546'
-                        )
-                      }
-                      className="p-2 bg-white border border-[#C8D9A5] hover:border-[#C8D9A5] text-left transition-all flex items-center gap-2 cursor-pointer"
-                    >
-                      <div className="w-6 h-6 bg-[#4A5546] shrink-0" />
-                      <div className="truncate">
-                        <p className="font-editorial text-sm text-[#191919] truncate leading-none">Jaket Olive</p>
-                        <p className="label text-[9px]">Luaran</p>
-                      </div>
-                    </button>
-                  </div>
-                </div>
-
-                {imagePreview && (
-                  <button
-                    type="button"
-                    onClick={handleReanalyze}
-                    disabled={isAnalyzing}
-                    className="mt-3 w-full py-1.5 px-3 bg-[#7A2117] text-[#F8F6EC] hover:bg-[#7A2117] text-[10px] font-editorial-mono uppercase tracking-wider transition-colors"
-                  >
-                    <span>Re-Analyze dengan Gemini AI</span>
-                  </button>
-                )}
-              </div>
+              {imagePreview && (
+                <button
+                  type="button"
+                  onClick={handleReanalyze}
+                  disabled={isAnalyzing}
+                  className="w-full py-1.5 px-3 bg-[#7A2117] text-[#F8F6EC] hover:bg-[#7A2117] text-[10px] font-editorial-mono uppercase tracking-wider transition-colors"
+                >
+                  <span>Re-Analyze dengan Gemini AI</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -487,7 +388,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onSav
                   <option value="Terusan">Terusan (Dress / Jumpsuit)</option>
                   <option value="Luaran">Luaran (Jaket / Blazer / Cardigan)</option>
                   <option value="Sepatu">Sepatu (Sneakers / Loafers / Boots)</option>
-                  <option value="Aksesoris">Aksesoris (Topi / Jam / Tas)</option>
+                  <option value="Aksesoris">Aksesoris (Topi / Tas / Hijab)</option>
                 </select>
               </div>
 
@@ -497,7 +398,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onSav
                   type="text"
                   value={subCategory}
                   onChange={(e) => setSubCategory(e.target.value)}
-                  placeholder="Misal: Kemeja, Chino, Knitwear"
+                  placeholder="Misal: Topi, Sepatu, Tas, Hijab"
                   className="w-full px-3 py-2 text-xs border border-[#C8D9A5] focus:border-[#C8D9A5] bg-white focus:outline-none"
                 />
               </div>

@@ -1,35 +1,23 @@
 import { ClothingItem, Outfit, VTONResult } from '../types';
 import { INITIAL_CLOTHING_ITEMS } from '../data/mockCloset';
 
-const CLOSET_KEY = 'vestiai_closet_items_v2';
+const CLOSET_KEY = 'vestiai_closet_items_v3';
 const OUTFITS_KEY = 'vestiai_outfits_v2';
 const VTON_HISTORY_KEY = 'vestiai_vton_history_v1';
 
 export function getSavedClosetItems(): ClothingItem[] {
   try {
-    // Check v2 first
+    const legacyKeys = ['vestiai_closet_items_v2', 'vestiai_closet_items_v1'];
+    const hasLegacyCloset = legacyKeys.some((key) => localStorage.getItem(key));
+
+    if (hasLegacyCloset) {
+      legacyKeys.forEach((key) => localStorage.removeItem(key));
+      localStorage.setItem(CLOSET_KEY, JSON.stringify(INITIAL_CLOTHING_ITEMS));
+      return INITIAL_CLOTHING_ITEMS;
+    }
+
     let raw = localStorage.getItem(CLOSET_KEY);
     if (!raw) {
-      // Check if v1 existed and migrate items
-      const oldRaw = localStorage.getItem('vestiai_closet_items_v1');
-      if (oldRaw) {
-        try {
-          const oldItems: ClothingItem[] = JSON.parse(oldRaw);
-          // If old items are still using unsplash URLs for standard IDs, update with new PNG assets
-          const migrated = oldItems.map((item) => {
-            const fresh = INITIAL_CLOTHING_ITEMS.find((init) => init.id === item.id);
-            if (fresh) {
-              return { ...item, imageUrl: fresh.imageUrl };
-            }
-            return item;
-          });
-          localStorage.setItem(CLOSET_KEY, JSON.stringify(migrated));
-          return migrated;
-        } catch {
-          // fallback
-        }
-      }
-
       localStorage.setItem(CLOSET_KEY, JSON.stringify(INITIAL_CLOTHING_ITEMS));
       return INITIAL_CLOTHING_ITEMS;
     }

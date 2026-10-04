@@ -66,7 +66,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               }`}
             >
               <span>Try-On</span>
-              <span className="font-editorial-mono text-[9px] px-1.5 py-0.2 bg-[#D8B96A] text-[#191919] rounded-full">
+              <span className="font-editorial-mono text-[9px] px-1.5 py-0.2 bg-[#f4f1e5] text-[#191919] rounded-full">
                 AI
               </span>
             </button>

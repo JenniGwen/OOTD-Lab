@@ -2,66 +2,6 @@ import { ClothingItem } from '../types';
 
 export const INITIAL_CLOTHING_ITEMS: ClothingItem[] = [
   {
-    id: 'item-top-1',
-    name: 'Kemeja Linen Putih Oversized',
-    category: 'Atasan',
-    subCategory: 'Kemeja',
-    color: 'Putih Bersih',
-    hexColor: '#F8FAFC',
-    imageUrl: '/clothes/white_shirt.png',
-    material: 'Linen Premium',
-    style: 'Smart Casual / Minimalist',
-    purchasePrice: 349000,
-    wearCount: 18,
-    lastWornDate: new Date(Date.now() - 3 * 86400000).toISOString(),
-    createdAt: '2025-01-10T10:00:00Z',
-    isFavorite: true,
-    brand: 'Uniqlo',
-    size: 'L',
-  },
-
-
-
-
-
-  {
-    id: 'item-bottom-3',
-    name: 'Celana Formal Pleated Hitam',
-    category: 'Bawahan',
-    subCategory: 'Trousers',
-    color: 'Charcoal / Hitam',
-    hexColor: '#1E293B',
-    imageUrl: '/clothes/black_pants.png',
-    material: 'Wool Blend Poly',
-    style: 'Formal / Business',
-    purchasePrice: 480000,
-    wearCount: 1,
-    lastWornDate: new Date(Date.now() - 65 * 86400000).toISOString(),
-    createdAt: '2024-08-10T15:00:00Z',
-    isFavorite: false,
-    brand: 'The Executive',
-    size: '31',
-  },
-
-  {
-    id: 'item-outer-2',
-    name: 'Blazer Tailored Navy Klasik',
-    category: 'Luaran',
-    subCategory: 'Blazer',
-    color: 'Midnight Navy',
-    hexColor: '#1E293B',
-    imageUrl: '/clothes/navy_blazer.png',
-    material: 'Tropical Wool',
-    style: 'Formal / Sartorial',
-    purchasePrice: 890000,
-    wearCount: 3,
-    lastWornDate: new Date(Date.now() - 52 * 86400000).toISOString(),
-    createdAt: '2024-05-18T10:00:00Z',
-    isFavorite: false,
-    brand: 'SuitSupply',
-    size: '48',
-  },
-  {
     id: 'item-shoes-1',
     name: 'Sneakers Putih Minimalis',
     category: 'Sepatu',

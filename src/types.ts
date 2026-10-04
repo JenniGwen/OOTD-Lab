@@ -39,10 +39,21 @@ export interface Outfit {
 }
 
 export interface ColorHarmony {
-  score: number;
+  score: number | null;
   harmonyType: string;
   verdict: string;
   tips: string;
+  breakdown?: {
+    completeness: number;
+    color: number;
+    style: number;
+    context: number;
+  };
+  applied_caps?: string[];
+  missing_fields?: string[];
+  confidence?: 'high' | 'medium' | 'low';
+  reasons?: string[];
+  suggestion?: string;
   palette: {
     itemId: string;
     name: string;

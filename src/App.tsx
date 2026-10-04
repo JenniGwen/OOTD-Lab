@@ -48,13 +48,6 @@ export default function App() {
     saveVTONHistory(vtonHistory);
   }, [vtonHistory]);
 
-  useEffect(() => {
-    if (activeTab === 'mixmatch') {
-      setMixMatchTop(null);
-      setMixMatchBottom(null);
-    }
-  }, [activeTab]);
-
   // Wear tracking count for alert badge
   const underutilizedCount = closetItems.filter(
     (i) => getDaysAgo(i.lastWornDate) >= 30 || i.wearCount === 0

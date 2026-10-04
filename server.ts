@@ -139,6 +139,263 @@ Kembalikan data dalam format JSON murni dengan atribut:
   }
 });
 
+const REQUIRED_METADATA_FIELDS = ['category', 'color'] as const;
+const OPTIONAL_METADATA_FIELDS = ['subCategory', 'hexColor', 'material', 'style', 'brand', 'size'] as const;
+
+function analyzeMetadata(pieces: any[]) {
+  const missing: string[] = [];
+  for (const piece of pieces) {
+    for (const field of [...REQUIRED_METADATA_FIELDS, ...OPTIONAL_METADATA_FIELDS]) {
+      if (!piece[field]) missing.push(`${piece.id || piece.category || 'piece'}.${field}`);
+    }
+  }
+
+  const requiredMissing = pieces.some((piece) => REQUIRED_METADATA_FIELDS.some((field) => !piece[field]));
+  return { missing, canScore: pieces.length > 0 && !requiredMissing };
+}
+
+function hexToHsl(hex: string) {
+  const normalized = hex.replace('#', '').trim();
+  const full = normalized.length === 3
+    ? normalized.split('').map((value) => value + value).join('')
+    : normalized;
+  if (!/^[\da-f]{6}$/i.test(full)) return null;
+
+  const [red, green, blue] = [0, 2, 4].map((index) => parseInt(full.slice(index, index + 2), 16) / 255);
+  const max = Math.max(red, green, blue);
+  const min = Math.min(red, green, blue);
+  const lightness = (max + min) / 2;
+  const delta = max - min;
+  let saturation = 0;
+  let hue = 0;
+
+  if (delta !== 0) {
+    saturation = delta / (1 - Math.abs(2 * lightness - 1));
+    if (max === red) hue = ((green - blue) / delta) % 6;
+    else if (max === green) hue = (blue - red) / delta + 2;
+    else hue = (red - green) / delta + 4;
+    hue = (hue * 60 + 360) % 360;
+  }
+
+  return { h: hue, s: saturation * 100, l: lightness * 100 };
+}
+
+function hueDiff(first: number, second: number) {
+  const difference = Math.abs(first - second) % 360;
+  return difference > 180 ? 360 - difference : difference;
+}
+
+function scoreColor(hexes: string[]) {
+  const colors = hexes.filter(Boolean).map(hexToHsl).filter((color): color is NonNullable<typeof color> => Boolean(color));
+  const chromatic = colors.filter((color) => color.s >= 12 && color.l >= 12 && color.l <= 90);
+
+  if (colors.length === 0) return { score: 50, note: 'Hex warna tidak tersedia' };
+  if (chromatic.length === 0) return { score: 95, note: 'Semua warna netral' };
+  if (chromatic.length === 1) return { score: 90, note: 'Satu warna kromatik dengan penyeimbang netral' };
+  if (chromatic.length >= 3) {
+    const differences = chromatic.flatMap((first, firstIndex) =>
+      chromatic.slice(firstIndex + 1).map((second) => hueDiff(first.h, second.h))
+    );
+    return differences.every((difference) => difference <= 30)
+      ? { score: 90, note: 'Analogous / monokrom' }
+      : { score: 40, note: 'Terlalu banyak warna kromatik tanpa pola jelas' };
+  }
+
+  const [first, second] = chromatic;
+  const difference = hueDiff(first.h, second.h);
+  if (difference <= 30) return { score: 90, note: 'Analogous / monokrom' };
+  if (difference >= 150) return { score: 85, note: 'Komplementer' };
+  if (Math.abs(difference - 120) <= 15) return { score: 75, note: 'Triadic' };
+  if (first.s > 70 && second.s > 70) return { score: 45, note: 'Dua warna jenuh bertabrakan' };
+  return { score: 60, note: 'Kombinasi warna kurang terarah' };
+}
+
+function roundScore(value: number) {
+  return Math.round(Math.max(0, Math.min(100, value)));
+}
+
+function calculateCompleteness(items: any[]) {
+  const categories = items.map((item) => String(item.category || '').toLowerCase());
+  const hasTop = categories.includes('atasan');
+  const hasBottom = categories.includes('bawahan');
+  const hasDress = categories.includes('terusan');
+  const hasShoes = categories.includes('sepatu');
+  const hasMain = hasDress || (hasTop && hasBottom);
+  const hasPartialMain = !hasDress && (hasTop !== hasBottom);
+  const pieceCount = items.length;
+
+  if (pieceCount === 1) return { score: 10, hasMain, hasShoes };
+  if (hasPartialMain) return { score: 30, hasMain, hasShoes };
+  if (!hasMain) return { score: 0, hasMain, hasShoes };
+  if (!hasShoes) return { score: 60, hasMain, hasShoes };
+  return { score: 100, hasMain, hasShoes };
+}
+
+// AI Outfit Evaluation (metadata + garment photos)
+app.post('/api/ai/analyze-harmony', async (req, res) => {
+  try {
+    const { items, occasion, weather } = req.body;
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'Pilih minimal satu item busana untuk dianalisis.' });
+    }
+
+    const metadata = analyzeMetadata(items);
+
+    const ai = getGeminiClient();
+    if (!ai) {
+      return res.status(503).json({ error: 'Gemini API key belum disetel.' });
+    }
+
+    const itemSummaries = items.map((item: any) => ({
+      id: item.id,
+      name: item.name,
+      category: item.category,
+      subCategory: item.subCategory,
+      color: item.color,
+      hexColor: item.hexColor,
+      style: item.style,
+      material: item.material,
+      brand: item.brand,
+      size: item.size,
+      imageProvided: Boolean(item.imageBase64),
+    }));
+
+    const completeness = calculateCompleteness(items);
+    const color = scoreColor(items.map((item: any) => item.hexColor));
+    const duplicateCategories = ['atasan', 'bawahan', 'terusan', 'sepatu']
+      .filter((category) => itemSummaries.filter((item: any) => String(item.category || '').toLowerCase() === category).length > 1);
+
+    const parts: any[] = [
+      {
+        text: `Kamu adalah penilai outfit yang objektif dan kritis. Nilai HANYA berdasarkan metadata piece dan foto yang diberikan. Jangan mengarang atribut yang tidak ada.
+
+Kode aplikasi SUDAH menghitung kelengkapan dan warna. Jangan menghitung ulang atau mengubah kedua nilai itu. Nilai HANYA dua dimensi berikut dalam persentase 0-100:
+1. Gaya & formalitas: semua piece berada pada level formalitas yang sama/berdekatan. Selisih 2 level atau lebih berarti turun tajam.
+2. Konteks: cocok dengan cuaca, musim, dan acara. Jika konteks tidak diberikan, nilai kecocokan musim antar-piece saja.
+
+Klasifikasi gaya yang tersedia hanya dari metadata style. Jangan mengarang formalitas, cuaca, musim, atau acara yang tidak tersedia. Foto boleh dipakai untuk memahami piece yang terlihat, tetapi jangan menggunakannya untuk mengganti data metadata.
+
+Konteks acara: ${occasion || 'tidak diberikan'}
+Konteks cuaca: ${weather || 'tidak diberikan'}
+
+Balas HANYA JSON:
+{
+  "style": 0,
+  "context": 0,
+  "formalConflict": false,
+  "contextConflict": false,
+  "confidence": "high|medium|low",
+  "reasons": ["alasan singkat 1", "alasan singkat 2"],
+  "suggestion": "satu saran perbaikan"
+}
+
+Wajib isi reasons dengan 2-4 alasan faktual dan suggestion dengan tepat satu saran konkret. Jangan kirim reasons atau suggestion kosong.
+
+Nilai deterministik dari kode untuk referensi saja: kelengkapan ${completeness.score}%, warna ${color.score}% (${color.note}), duplicate categories: ${duplicateCategories.join(', ') || 'tidak ada'}.
+Data item: ${JSON.stringify(itemSummaries, null, 2)}`,
+      },
+    ];
+
+    for (const item of items) {
+      if (!item.imageBase64) continue;
+      const mimeType = item.imageBase64.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,/)?.[1] || 'image/jpeg';
+      const cleanBase64 = item.imageBase64.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '');
+      parts.push({
+        inlineData: {
+          mimeType,
+          data: cleanBase64,
+        },
+      });
+    }
+
+    const response = await ai.models.generateContent({
+      model: GEMINI_VISION_MODEL,
+      contents: parts,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            style: { type: Type.NUMBER },
+            context: { type: Type.NUMBER },
+            formalConflict: { type: Type.BOOLEAN },
+            contextConflict: { type: Type.BOOLEAN },
+            confidence: { type: Type.STRING },
+            reasons: { type: Type.ARRAY, items: { type: Type.STRING } },
+            suggestion: { type: Type.STRING },
+          },
+          required: ['style', 'context', 'formalConflict', 'contextConflict', 'confidence', 'reasons', 'suggestion'],
+        },
+      },
+    });
+
+    const parsed = JSON.parse(response.text || '{}');
+    const reasons = Array.isArray(parsed.reasons)
+      ? parsed.reasons.filter((reason: unknown): reason is string => typeof reason === 'string' && reason.trim().length > 0)
+      : typeof parsed.reasons === 'string' && parsed.reasons.trim().length > 0
+        ? [parsed.reasons.trim()]
+        : typeof parsed.reason === 'string' && parsed.reason.trim().length > 0
+          ? [parsed.reason.trim()]
+          : typeof parsed.verdict === 'string' && parsed.verdict.trim().length > 0
+            ? [parsed.verdict.trim()]
+            : [];
+    const suggestion = [parsed.suggestion, parsed.recommendation, parsed.tips]
+      .find((value: unknown): value is string => typeof value === 'string' && value.trim().length > 0)
+      || 'Lengkapi metadata outfit untuk evaluasi yang lebih akurat.';
+    const styleScore = roundScore(typeof parsed.style === 'number' ? parsed.style : 50);
+    const contextScore = roundScore(typeof parsed.context === 'number' ? parsed.context : 50);
+    const appliedCaps: string[] = [];
+    let hardCap = 100;
+    if (items.length === 1) {
+      hardCap = Math.min(hardCap, 20);
+      appliedCaps.push('Hanya 1 piece: maksimum 20');
+    }
+    if (!completeness.hasMain) {
+      hardCap = Math.min(hardCap, 40);
+      appliedCaps.push('Tidak ada atasan/bawahan/dress: maksimum 40');
+    }
+    if (!completeness.hasShoes) {
+      hardCap = Math.min(hardCap, 70);
+      appliedCaps.push('Tidak ada sepatu: maksimum 70');
+    }
+    if (duplicateCategories.length > 0) {
+      hardCap = Math.min(hardCap, 45);
+      appliedCaps.push('Kategori ganda bentrok: maksimum 45');
+    }
+    if (parsed.formalConflict === true) {
+      hardCap = Math.min(hardCap, 50);
+      appliedCaps.push('Formalitas ekstrem: maksimum 50');
+    }
+    if (parsed.contextConflict === true) {
+      hardCap = Math.min(hardCap, 60);
+      appliedCaps.push('Bertentangan dengan cuaca/acara: maksimum 60');
+    }
+
+    const breakdown = {
+      completeness: roundScore(completeness.score * 0.2),
+      color: roundScore(color.score * 0.4),
+      style: roundScore(styleScore * 0.2),
+      context: roundScore(contextScore * 0.2),
+    };
+    const weightedScore = breakdown.completeness + breakdown.color + breakdown.style + breakdown.context;
+    res.json({
+      score: metadata.canScore ? Math.min(hardCap, weightedScore) : null,
+      harmonyType: color.note,
+      verdict: reasons.join(' ') || 'Gemini tidak memberikan alasan tambahan.',
+      tips: suggestion,
+      breakdown,
+      applied_caps: appliedCaps,
+      missing_fields: metadata.missing,
+      confidence: ['high', 'medium', 'low'].includes(parsed.confidence) ? parsed.confidence : 'low',
+      reasons,
+      suggestion,
+    });
+  } catch (error: any) {
+    console.error('[analyze-harmony] Error:', error?.message || error);
+    res.status(502).json({ error: 'Gemini gagal menyelesaikan evaluasi outfit.' });
+  }
+});
+
 // AI Mix-Match Outfit Recommendation
 app.post('/api/ai/mixmatch', async (req, res) => {
   try {

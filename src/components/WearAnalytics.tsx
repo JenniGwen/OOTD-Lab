@@ -65,7 +65,7 @@ export const WearAnalytics: React.FC<WearAnalyticsProps> = ({ items, onLogWear, 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-5">
         <div>
           <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight">Wardrobe Analytics</h1>
-          <p className="text-sm text-[#8A8680] mt-1">Seberapa aktif koleksimu dipakai dalam 30 hari terakhir.</p>
+          <p className="text-sm text-[#8A8680] mt-1">Track your clothes.</p>
         </div>
         <div className={`${card} flex items-center gap-4 pl-4 pr-6 py-3`}>
           <Ring value={utilizationRate} />
