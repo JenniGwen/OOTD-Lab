@@ -60,6 +60,7 @@ export const VirtualTryOn: React.FC<VirtualTryOnProps> = ({
   const [result, setResult] = useState<string | null>(null);
   const [bg, setBg] = useState(PALETTE[0]);
   const [picks, setPicks] = useState<Record<string, string | null>>({});
+  const [accessoryPicks, setAccessoryPicks] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [stage, setStage] = useState('Next day, next color');
@@ -76,9 +77,10 @@ export const VirtualTryOn: React.FC<VirtualTryOnProps> = ({
 
   const categories = useMemo(() => {
     const all = Array.from(new Set(closetItems.map((i) => i.category as string)));
-    return CATEGORY_ORDER.filter((category) => all.includes(category));
+    return CATEGORY_ORDER.filter((category) => category !== 'Aksesoris' && all.includes(category));
   }, [closetItems]);
   const byCat = (c: string) => closetItems.filter((i) => (i.category as string) === c);
+  const accessoryItems = useMemo(() => byCat('Aksesoris'), [closetItems]);
 
   // Keep one-pieces opt-in so they do not combine with other garments by default.
   useEffect(() => {
@@ -94,6 +96,14 @@ export const VirtualTryOn: React.FC<VirtualTryOnProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [categories, preSelectedTop, preSelectedBottom]);
 
+  useEffect(() => {
+    setAccessoryPicks((current) => {
+      const valid = current.filter((id) => accessoryItems.some((item) => item.id === id));
+      if (valid.length > 0 || accessoryItems.length === 0) return valid;
+      return [accessoryItems[0].id];
+    });
+  }, [accessoryItems]);
+
   const cycle = (c: string, dir: 1 | -1) => {
     const opts: (string | null)[] = [null, ...byCat(c).map((i) => i.id)];
     const idx = opts.indexOf(picks[c] ?? null);
@@ -106,6 +116,25 @@ export const VirtualTryOn: React.FC<VirtualTryOnProps> = ({
       n.Terusan = null;
     }
     setPicks(n);
+  };
+  const cycleAccessory = (index: number, dir: 1 | -1) => {
+    if (accessoryItems.length === 0) return;
+    setAccessoryPicks((current) => {
+      const next = [...current];
+      const options = accessoryItems.map((item) => item.id);
+      const currentIndex = options.indexOf(next[index]);
+      next[index] = options[(currentIndex + dir + options.length) % options.length];
+      return next;
+    });
+  };
+  const addAccessory = () => {
+    setAccessoryPicks((current) => {
+      const available = accessoryItems.find((item) => !current.includes(item.id));
+      return available ? [...current, available.id] : current;
+    });
+  };
+  const removeAccessory = (index: number) => {
+    setAccessoryPicks((current) => current.filter((_, pickIndex) => pickIndex !== index));
   };
   const shuffle = () => {
     const n: Record<string, string | null> = {};
@@ -120,11 +149,13 @@ export const VirtualTryOn: React.FC<VirtualTryOnProps> = ({
         n[c] = items.length ? items[Math.floor(Math.random() * items.length)].id : null;
       }
     }
+    setAccessoryPicks(accessoryItems.length ? [accessoryItems[Math.floor(Math.random() * accessoryItems.length)].id] : []);
     setPicks(n);
   };
-  const chosen = categories
-    .map((c) => byCat(c).find((i) => i.id === picks[c]))
-    .filter(Boolean) as ClothingItem[];
+  const chosen = [
+    ...categories.map((c) => byCat(c).find((i) => i.id === picks[c])),
+    ...accessoryPicks.map((id) => accessoryItems.find((item) => item.id === id)),
+  ].filter(Boolean) as ClothingItem[];
   const modelGarments = chosen.filter(({ category }) =>
     MODEL_CATEGORIES.includes(category as string),
   );
@@ -355,6 +386,44 @@ export const VirtualTryOn: React.FC<VirtualTryOnProps> = ({
                       </div>
                     );
                   })}
+                  {accessoryItems.length > 0 && (
+                    <div className="col-span-2 border-t border-[#C8D9A5] pt-3">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-[#96948B]">Aksesoris</span>
+                        <button
+                          type="button"
+                          onClick={addAccessory}
+                          disabled={accessoryPicks.length >= accessoryItems.length}
+                          className="flex items-center gap-1 rounded-full border border-[#C8D9A5] bg-white px-2.5 py-1.5 text-[10px] font-medium text-[#191919] transition-colors hover:bg-[#F2F7E8] disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <Plus className="h-3 w-3" />
+                          Tambah aksesoris
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        {accessoryPicks.map((accessoryId, accessoryIndex) => {
+                          const item = accessoryItems.find((accessory) => accessory.id === accessoryId);
+                          return (
+                            <div key={`${accessoryId}-${accessoryIndex}`} className="min-w-0">
+                              <div className="relative flex aspect-square min-w-0 items-center justify-center overflow-hidden rounded-xl border border-[#C8D9A5] bg-[#F2F7E8] p-2">
+                                {item && <img src={item.imageUrl} alt={item.name} referrerPolicy="no-referrer" className="max-h-full max-w-full object-contain" />}
+                                <button aria-label="Previous accessory" title="Previous accessory" onClick={() => cycleAccessory(accessoryIndex, -1)} className="absolute left-1 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-[#C8D9A5] bg-white/95 text-[#191919] cursor-pointer hover:bg-[#F2F7E8]">
+                                  <ChevronLeft className="h-4 w-4" />
+                                </button>
+                                <button aria-label="Next accessory" title="Next accessory" onClick={() => cycleAccessory(accessoryIndex, 1)} className="absolute right-1 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-[#C8D9A5] bg-white/95 text-[#191919] cursor-pointer hover:bg-[#F2F7E8]">
+                                  <ChevronRight className="h-4 w-4" />
+                                </button>
+                                <button aria-label="Remove accessory" title="Remove accessory" onClick={() => removeAccessory(accessoryIndex)} className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-[#191919]/75 text-white cursor-pointer hover:bg-[#7A2117]">
+                                  <span className="text-sm leading-none">×</span>
+                                </button>
+                              </div>
+                              <span className="mt-1 block min-w-0 truncate text-center text-[10px] text-[#96948B]" title={item?.name || 'Accessory'}>{item?.name || 'Accessory'}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
                 {tips && (
                   <p className="mt-3 break-words text-[11px] leading-relaxed text-[#96948B]">Use the arrows on each tile to browse your closet. Pick the empty slot to leave a category out. Tops, bottoms, and one-pieces are tried on; outerwear, shoes, and accessories appear beside the model.</p>
