@@ -80,6 +80,7 @@ def public_status(job: dict) -> dict:
         "warnings": job["warnings"],
         "error": job.get("error"),
         "qwen_mode": job["qwen_mode"],
+        "body": job.get("body"),
     }
 
 
@@ -90,8 +91,31 @@ def _normalize_garment(data: bytes) -> bytes:
     return image_to_png(img)
 
 
-def create_job(person: bytes, items: list[dict], qwen_mode: str = config.QWEN_DEFAULT_MODE) -> str:
-    """items: [{"item_id": str, "image": bytes, "category_override": str | None, "subtype": str | None}, ...]"""
+def _body(height_cm, weight_kg) -> dict:
+    """Optional body preference. Without it garments are fitted to the photo as it is."""
+    if height_cm in (None, "") and weight_kg in (None, ""):
+        return {"height_cm": None, "weight_kg": None, "size": None}
+    size = config.recommend_size(height_cm, weight_kg)
+    if size is None:
+        raise ValueError(
+            f"height_cm must be {config.HEIGHT_RANGE_CM[0]}-{config.HEIGHT_RANGE_CM[1]} and weight_kg "
+            f"{config.WEIGHT_RANGE_KG[0]}-{config.WEIGHT_RANGE_KG[1]} (give both, or neither)"
+        )
+    return {"height_cm": float(height_cm), "weight_kg": float(weight_kg), "size": size}
+
+
+def _size(value) -> Optional[str]:
+    size = str(value or "").strip().upper()
+    if size and size not in config.SIZES:
+        raise ValueError(f"size must be one of {config.SIZES}")
+    return size or None
+
+
+def create_job(person: bytes, items: list[dict], qwen_mode: str = config.QWEN_DEFAULT_MODE,
+               height_cm=None, weight_kg=None) -> str:
+    """items: [{"item_id": str, "image": bytes, "category_override": str | None, "subtype": str | None,
+    "size": "XS".."XL" | None}, ...]. height_cm / weight_kg are optional (both or neither)."""
+    body = _body(height_cm, weight_kg)
     if qwen_mode not in config.QWEN_MODES:
         raise ValueError(f"qwen_mode must be one of {sorted(config.QWEN_MODES)}")
     if not items:
@@ -102,6 +126,7 @@ def create_job(person: bytes, items: list[dict], qwen_mode: str = config.QWEN_DE
         override = item.get("category_override")
         if override and override not in _RUNNABLE:
             raise ValueError(f"category_override must be one of {_RUNNABLE}")
+        item["size"] = _size(item.get("size"))
 
     job_id = uuid.uuid4().hex[:12]
     base = job_dir(job_id)
@@ -122,6 +147,7 @@ def create_job(person: bytes, items: list[dict], qwen_mode: str = config.QWEN_DE
             "category_override": item.get("category_override") or None,
             # optional hint kept when the category is set by hand (drives Leffa's mask and Qwen's prompt)
             "subtype": str(item.get("subtype") or "").strip().lower()[:40],
+            "size": item["size"],
         })
 
     job = {
@@ -133,6 +159,7 @@ def create_job(person: bytes, items: list[dict], qwen_mode: str = config.QWEN_DE
         "warnings": [],
         "error": None,
         "qwen_mode": qwen_mode,
+        "body": body,
         "items": stored,
         "created_at": time.time(),
     }
@@ -142,8 +169,9 @@ def create_job(person: bytes, items: list[dict], qwen_mode: str = config.QWEN_DE
 
 
 def start_replace(job_id: str, step_index: int, new_garment: Optional[bytes] = None,
-                  category_override: Optional[str] = None) -> dict:
+                  category_override: Optional[str] = None, size: Optional[str] = None) -> dict:
     """Validate and queue a replace_item run. Returns the public status."""
+    size = _size(size)
     job = load_job(job_id)
     if job["status"] in ACTIVE_STATUSES:
         raise JobBusy(f"Job {job_id} is still {job['status']}; wait until it finishes.")
@@ -158,14 +186,18 @@ def start_replace(job_id: str, step_index: int, new_garment: Optional[bytes] = N
             raise ValueError(f"new garment is not a readable image: {error}") from error
     job["status"] = "queued"
     save_job(job)
-    replace_item.spawn(job_id, step_index, new_garment, category_override)
+    replace_item.spawn(job_id, step_index, new_garment, category_override, size)
     return public_status(job)
 
 
 # ---------------------------------------------------------------- planning
-def _new_step(number: int, item: dict, category: str, subtype: str) -> dict:
-    engine = config.engine_for(category, subtype)
+def _new_step(number: int, item: dict, category: str, subtype: str, body_size: Optional[str] = None) -> dict:
+    fit = config.fit_for(item.get("size"), body_size) if category in config.FIT_CATEGORIES else 0
+    engine = config.engine_for(category, subtype, fit)
     return {
+        "size": item.get("size"),
+        "fit": fit,
+        "fit_label": config.FIT_LABELS[fit],
         "step": number,
         "item_id": item["item_id"],
         "category": category,
@@ -182,7 +214,7 @@ def _new_step(number: int, item: dict, category: str, subtype: str) -> dict:
     }
 
 
-def build_plan(classified: list[dict]) -> tuple[list[dict], list[str]]:
+def build_plan(classified: list[dict], body_size: Optional[str] = None) -> tuple[list[dict], list[str]]:
     """classified: stored items + category/subtype/confidence/needs_review. Returns (steps, warnings)."""
     warnings = []
     order = {category: index for index, category in enumerate(config.CATEGORY_ORDER)}
@@ -192,7 +224,7 @@ def build_plan(classified: list[dict]) -> tuple[list[dict], list[str]]:
     steps = []
     for number, (_, item) in enumerate(ranked, start=1):
         category = item["category"]
-        step = _new_step(number, item, category, item.get("subtype", ""))
+        step = _new_step(number, item, category, item.get("subtype", ""), body_size)
         skip_reason = None
         if has_dress and category in ("atasan", "bawahan"):
             skip_reason = "skipped because the outfit contains a dress"
@@ -268,7 +300,8 @@ def _execute(job: dict, start_step: int = 1) -> dict:
             if step["engine"] == "leffa":
                 out = Leffa().tryon.remote(current, garment, step["category"], step["subtype"])
             else:
-                out = QwenEdit().tryon.remote(current, garment, step["category"], step["subtype"], job["qwen_mode"])
+                out = QwenEdit().tryon.remote(current, garment, step["category"], step["subtype"],
+                                              job["qwen_mode"], fit=step.get("fit", 0))
         except Exception as error:
             # Earlier step images stay on the Volume; only this step is marked failed.
             wall = time.monotonic() - started
@@ -330,7 +363,7 @@ def run_pipeline(job_id: str) -> dict:
         job = load_job(job_id)
         job["status"] = "classifying"
         save_job(job)
-        job["steps"], job["warnings"] = build_plan(_classify_items(job))
+        job["steps"], job["warnings"] = build_plan(_classify_items(job), (job.get("body") or {}).get("size"))
         return _execute(job, start_step=1)
     except Exception as error:
         return _fail(job_id, error)
@@ -338,10 +371,11 @@ def run_pipeline(job_id: str) -> dict:
 
 @app.function(image=cpu_image, volumes={config.RESULTS_DIR: results_vol}, timeout=3600)
 def replace_item(job_id: str, step_index: int, new_garment: Optional[bytes] = None,
-                 category_override: Optional[str] = None) -> dict:
+                 category_override: Optional[str] = None, size: Optional[str] = None) -> dict:
     """Re-run from `step_index` (1-based) using the stored output of the step before it.
 
-    new_garment=None retries the step with the same garment. Later steps are
+    new_garment=None retries the step with the same garment; `size` (XS..XL) changes
+    only the size of that step's garment. Later steps are
     re-run as well, because each of them was built on top of the replaced one.
     """
     try:
@@ -376,9 +410,14 @@ def replace_item(job_id: str, step_index: int, new_garment: Optional[bytes] = No
         if category not in config.ENGINE_BY_CATEGORY:
             raise ValueError(f"step {step_index} has category '{category}'; pass category_override")
 
-        engine = config.engine_for(category, subtype)
+        if size:
+            step["size"] = size
+        fit = 0
+        if category in config.FIT_CATEGORIES:
+            fit = config.fit_for(step.get("size"), (job.get("body") or {}).get("size"))
+        engine = config.engine_for(category, subtype, fit)
         step.update(category=category, subtype=subtype, engine=engine, gpu=ENGINE_SPECS[engine]["gpu"],
-                    status="pending", error=None)
+                    fit=fit, fit_label=config.FIT_LABELS[fit], status="pending", error=None)
         for later in job["steps"][step_index - 1:]:
             if later["status"] != "skipped":
                 later.update(status="pending", error=None, image_path=None,

@@ -224,7 +224,7 @@ class QwenEdit:
 
     @modal.method()
     def tryon(self, person: bytes, garment: bytes, category: str, subtype: str = "",
-              mode: str = config.QWEN_DEFAULT_MODE, seed: int = config.QWEN_SEED) -> dict:
+              mode: str = config.QWEN_DEFAULT_MODE, seed: int = config.QWEN_SEED, fit: int = 0) -> dict:
         import torch
 
         started = time.monotonic()
@@ -244,6 +244,8 @@ class QwenEdit:
         person_img = fit_canvas(image_from_bytes(person))
         garment_img = image_from_bytes(garment)
         prompt = config.QWEN_PROMPTS[category]  # subtype is not used: Qwen reads the item from image 2
+        if category in config.QWEN_FIT_CATEGORIES:
+            prompt += config.QWEN_FIT_PHRASES.get(fit, "")
 
         with torch.inference_mode():
             output = self.pipe(

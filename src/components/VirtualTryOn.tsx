@@ -44,6 +44,29 @@ const downscale = (src: string, max = 1024) =>
 
 const MODAL_CATEGORIES = ['Luaran', 'Sepatu', 'Aksesoris']; // also tried on when the Modal backend is used
 
+// Garment sizes (Modal backend). Keep in sync with modal_app/config.py: SIZES,
+// SIZE_BMI_BOUNDS, SIZE_TALL_CM, SIZE_SHORT_CM and recommend_size().
+const SIZES = ['XS', 'S', 'M', 'L', 'XL'];
+const SIZED_CATEGORIES = ['Atasan', 'Bawahan', 'Terusan', 'Luaran'];
+const FIT_NAMES = ['tight', 'slim', 'regular', 'loose', 'oversized'];
+const BODY_KEY = 'ootd.body';
+const recommendSize = (heightCm: number, weightKg: number): string | null => {
+  if (!(heightCm >= 120 && heightCm <= 220 && weightKg >= 30 && weightKg <= 200)) return null;
+  const bmi = weightKg / (heightCm / 100) ** 2;
+  let i = [18.5, 21.5, 24.5, 27.5].filter((bound) => bmi >= bound).length;
+  if (heightCm >= 182) i += 1;
+  else if (heightCm < 155) i -= 1;
+  return SIZES[Math.max(0, Math.min(SIZES.length - 1, i))];
+};
+const loadBody = (): { height: string; weight: string } => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(BODY_KEY) || '{}');
+    return { height: String(saved.height || ''), weight: String(saved.weight || '') };
+  } catch {
+    return { height: '', weight: '' };
+  }
+};
+
 async function api(url: string, body?: unknown): Promise<any> {
   const r = await fetch(url, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : undefined);
   const data = await r.json().catch(() => ({}));
@@ -67,6 +90,8 @@ export const VirtualTryOn: React.FC<VirtualTryOnProps> = ({
   const [zoom, setZoom] = useState(false);
   const [tips, setTips] = useState(false);
   const [menu, setMenu] = useState<string | null>(null);
+  const [body, setBody] = useState(loadBody);
+  const [sizes, setSizes] = useState<Record<string, string | null>>({});
   const fileRef = useRef<HTMLInputElement>(null);
   const alive = useRef(true);
   useEffect(() => {
@@ -130,6 +155,18 @@ export const VirtualTryOn: React.FC<VirtualTryOnProps> = ({
   );
   const sideItems = chosen.filter(({ category }) => !MODEL_CATEGORIES.includes(category as string));
 
+  // Height and weight are optional: without them a garment is fitted to the photo, and a
+  // picked size is compared with M.
+  useEffect(() => {
+    try { localStorage.setItem(BODY_KEY, JSON.stringify(body)); } catch { /* storage unavailable */ }
+  }, [body]);
+  const heightCm = Number(body.height);
+  const weightKg = Number(body.weight);
+  const bodyGiven = body.height.trim() !== '' || body.weight.trim() !== '';
+  const bodySize = recommendSize(heightCm, weightKg);
+  const fitOf = (size: string) =>
+    FIT_NAMES[Math.max(0, Math.min(4, SIZES.indexOf(size) - SIZES.indexOf(bodySize || 'M') + 2))];
+
   const onUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     e.target.value = '';
@@ -169,17 +206,21 @@ export const VirtualTryOn: React.FC<VirtualTryOnProps> = ({
   const generate = async () => {
     if (!personPhoto) return setError('Upload a full-body photo first (Image > Upload photo).');
     if (!modelGarments.length) return setError('Pick at least one top, bottom, or one-piece item.');
+    if (bodyGiven && !bodySize) return setError('Enter both height (120-220 cm) and weight (30-200 kg), or leave both empty.');
     setError(null);
     setBusy(true);
     try {
       setStage('Dressing you...');
       setProgress(40);
-      const pick = ({ name, category, subCategory, imageUrl }: ClothingItem) => ({ name, category, subCategory, imageUrl });
+      const pick = ({ name, category, subCategory, imageUrl }: ClothingItem) => ({
+        name, category, subCategory, imageUrl, size: sizes[category as string] || undefined,
+      });
       let data = await api('/api/vton/tryon', {
         personImage: personPhoto,
         assetBaseUrl: window.location.origin,
         garments: modelGarments.map(pick),
         extras: sideItems.filter(({ category }) => MODAL_CATEGORIES.includes(category as string)).map(pick),
+        ...(bodySize ? { heightCm, weightKg } : {}),
       });
       if (data.jobId) data = await waitForJob(data.jobId);
       const img = data.image as string;
@@ -278,6 +319,25 @@ export const VirtualTryOn: React.FC<VirtualTryOnProps> = ({
             </button>
             <p className="text-[10px] leading-relaxed text-[#96948B]">Full body, standing, facing the camera.</p>
           </div>
+
+          <div className={`${box} min-w-0 p-3 space-y-2 text-xs font-medium`}>
+            <p className="text-[11px] font-semibold">Your body <span className="font-normal text-[#96948B]">(optional)</span></p>
+            <div className="grid grid-cols-2 gap-2">
+              {([['height', 'Height', 'cm'], ['weight', 'Weight', 'kg']] as const).map(([key, label, unit]) => (
+                <label key={key} className="min-w-0 text-[10px] text-[#96948B]">
+                  {label} ({unit})
+                  <input type="number" inputMode="numeric" min={0} value={body[key]} aria-label={`${label} in ${unit}`}
+                    onChange={(e) => setBody((b) => ({ ...b, [key]: e.target.value }))}
+                    className="mt-1 w-full min-w-0 rounded-lg border border-[#C8D9A5] bg-white px-2 py-1.5 text-xs text-[#191919] select-text" />
+                </label>
+              ))}
+            </div>
+            <p className="text-[10px] leading-relaxed text-[#96948B]">
+              {bodySize ? <>Your size: <span className="font-semibold text-[#191919]">{bodySize}</span></>
+                : bodyGiven ? 'Enter both height and weight.'
+                : 'Leave empty to fit clothes to your photo.'}
+            </p>
+          </div>
         </div>
 
         {/* Canvas window */}
@@ -352,12 +412,27 @@ export const VirtualTryOn: React.FC<VirtualTryOnProps> = ({
                           </button>
                         </div>
                         <span className="mt-1 block min-w-0 truncate text-center text-[10px] text-[#96948B]" title={item?.name || c}>{item?.name || c}</span>
+                        {item && SIZED_CATEGORIES.includes(c) && (
+                          <div className="mt-1 flex justify-center gap-0.5" role="group" aria-label={`${c} size`}>
+                            {SIZES.map((s) => (
+                              <button key={s} type="button" aria-pressed={sizes[c] === s}
+                                title={sizes[c] === s ? 'Back to a regular fit' : `Size ${s}: ${fitOf(s)} fit`}
+                                onClick={() => setSizes((v) => ({ ...v, [c]: v[c] === s ? null : s }))}
+                                className={`h-5 min-w-[22px] rounded-full border px-1 text-[9px] font-semibold cursor-pointer ${sizes[c] === s ? 'border-[#7A2117] bg-[#7A2117] text-white' : 'border-[#C8D9A5] bg-white text-[#96948B] hover:bg-[#F2F7E8]'}`}>
+                                {s}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        {item && sizes[c] && SIZED_CATEGORIES.includes(c) && (
+                          <span className="block text-center text-[9px] text-[#96948B]">{fitOf(sizes[c]!)} fit</span>
+                        )}
                       </div>
                     );
                   })}
                 </div>
                 {tips && (
-                  <p className="mt-3 break-words text-[11px] leading-relaxed text-[#96948B]">Use the arrows on each tile to browse your closet. Pick the empty slot to leave a category out. Tops, bottoms, and one-pieces are tried on; outerwear, shoes, and accessories appear beside the model.</p>
+                  <p className="mt-3 break-words text-[11px] leading-relaxed text-[#96948B]">Use the arrows on each tile to browse your closet. Pick the empty slot to leave a category out. Tops, bottoms, and one-pieces are tried on; outerwear, shoes, and accessories appear beside the model. Pick a size under a piece to try it looser or tighter; with no size it is fitted to your body.</p>
                 )}
               </div>
             </div>

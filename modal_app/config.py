@@ -56,9 +56,11 @@ ENGINE_BY_CATEGORY = {
 QWEN_BAWAHAN_SUBTYPES = r"\b(skirt|rok)\b"
 
 
-def engine_for(category: str, subtype: str = "") -> str:
+def engine_for(category: str, subtype: str = "", fit: int = 0) -> str:
     if category == "bawahan" and re.search(QWEN_BAWAHAN_SUBTYPES, (subtype or "").lower()):
         return "qwen"
+    if fit != 0 and category in FIT_CATEGORIES:
+        return "qwen"  # Leffa cannot change how loose a garment is, see QWEN_FIT_PHRASES
     return ENGINE_BY_CATEGORY[category]
 
 
@@ -68,6 +70,61 @@ MAX_IMAGE_BYTES = 15 * 1024 * 1024
 # Working resolution of the whole chain (Leffa's native size).
 WORK_WIDTH = 768
 WORK_HEIGHT = 1024
+
+# ---------------------------------------------------------------- sizes / fit
+# Standard letter sizes. The fit of a garment is the distance between its size and the
+# size that suits the wearer: 0 = regular, +1 = loose, +2 = oversized, negative = snug.
+SIZES = ["XS", "S", "M", "L", "XL"]
+# Assumed body size when the user gives no height/weight (the photo is used as it is).
+DEFAULT_BODY_SIZE = "M"
+FIT_MIN, FIT_MAX = -2, 2
+FIT_LABELS = {-2: "tight", -1: "slim", 0: "regular", 1: "loose", 2: "oversized"}
+# BMI upper bound of each size (generic unisex chart), XL above the last one.
+SIZE_BMI_BOUNDS = [18.5, 21.5, 24.5, 27.5]
+SIZE_TALL_CM = 182   # one size up from here: sleeves and legs need the length
+SIZE_SHORT_CM = 155  # one size down below this
+HEIGHT_RANGE_CM = (120, 220)
+WEIGHT_RANGE_KG = (30, 200)
+
+
+def recommend_size(height_cm=None, weight_kg=None):
+    """Letter size for a body, or None when height/weight are missing or implausible."""
+    try:
+        height, weight = float(height_cm), float(weight_kg)
+    except (TypeError, ValueError):
+        return None
+    if not (HEIGHT_RANGE_CM[0] <= height <= HEIGHT_RANGE_CM[1] and WEIGHT_RANGE_KG[0] <= weight <= WEIGHT_RANGE_KG[1]):
+        return None
+    bmi = weight / (height / 100) ** 2
+    index = sum(bmi >= bound for bound in SIZE_BMI_BOUNDS)
+    if height >= SIZE_TALL_CM:
+        index += 1
+    elif height < SIZE_SHORT_CM:
+        index -= 1
+    return SIZES[max(0, min(len(SIZES) - 1, index))]
+
+
+def fit_for(size, body_size=None) -> int:
+    """Fit level of a garment of `size` on a body of `body_size`. No size = regular fit."""
+    if size not in SIZES:
+        return 0
+    delta = SIZES.index(size) - SIZES.index(body_size if body_size in SIZES else DEFAULT_BODY_SIZE)
+    return max(FIT_MIN, min(FIT_MAX, delta))
+
+
+# Leffa has no text input and always paints a garment at the wearer's own size (growing
+# its mask only makes it paint junk around the body), so a garment whose fit is not
+# regular is put on by Qwen, which takes the fit as text.
+FIT_CATEGORIES = ["atasan", "bawahan", "dress", "luaran"]  # shoes and accessories have no fit
+QWEN_FIT_PHRASES = {
+    -2: " Fit: the garment is two sizes too small for this person, so it is very tight and clings to the body.",
+    -1: " Fit: the garment is one size too small for this person, a slim fit close to the body.",
+    0: "",
+    1: " Fit: the garment is one size too big for this person, so it hangs loose and relaxed.",
+    2: " Fit: the garment is two sizes too big for this person, so it is clearly oversized and baggy, "
+       "with dropped shoulders and extra length.",
+}
+QWEN_FIT_CATEGORIES = FIT_CATEGORIES + ["unknown"]
 
 # ---------------------------------------------------------------- Leffa (L40S)
 LEFFA_GPU = "L40S"
@@ -149,6 +206,15 @@ _QWEN_KEEP = (
     "colors of all other clothing, the same background and framing. Do not add any other item."
 )
 QWEN_PROMPTS = {
+    # atasan and dress only reach Qwen when a non-regular fit is asked for (see engine_for)
+    "atasan": (
+        "Replace the top the person in image 1 is wearing with the garment from image 2. "
+        "Remove the old top completely. " + _QWEN_MATCH + _QWEN_KEEP
+    ),
+    "dress": (
+        "Replace the clothes the person in image 1 is wearing with the one-piece garment from "
+        "image 2. Remove the old top and bottom completely. " + _QWEN_MATCH + _QWEN_KEEP
+    ),
     "bawahan": (
         "Replace the lower-body garment the person in image 1 is wearing with the garment from "
         "image 2, worn at the waist. Remove the old lower-body garment completely: where the "
@@ -178,6 +244,8 @@ LOCKED_GARMENT_LABELS = ["upper_clothes", "pants", "skirt", "dress"]
 # Labels a step is allowed to repaint: outerwear covers the top, and an item of unknown
 # type may cover anything (None = no check).
 QWEN_COLOR_LOCK_SKIP = {
+    "atasan": ["upper_clothes", "dress"],
+    "dress": None,
     "bawahan": ["pants", "skirt", "dress"],
     "luaran": ["upper_clothes", "dress"],
     "unknown": None,

@@ -12,6 +12,7 @@ const CATEGORY: Record<string, string> = {
   Sepatu: 'alas',
   Aksesoris: 'aksesoris',
 };
+const SIZES = ['XS', 'S', 'M', 'L', 'XL']; // modal_app/config.py SIZES
 const LABEL: Record<string, string> = {
   atasan: 'top', bawahan: 'bottom', dress: 'one-piece', luaran: 'outerwear', alas: 'shoes', aksesoris: 'accessory',
 };
@@ -70,7 +71,7 @@ export function modalVtonRouter(modalUrl: string): Router {
 
   router.post('/tryon', async (req, res) => {
     try {
-      const { personImage, garments = [], extras = [] } = req.body;
+      const { personImage, garments = [], extras = [], heightCm, weightKg } = req.body;
       if (typeof personImage !== 'string' || !personImage) {
         return res.status(400).json({ error: 'Body image is required.' });
       }
@@ -84,10 +85,15 @@ export function modalVtonRouter(modalUrl: string): Router {
           image: await toImageRef(g.imageUrl, origin),
           category_override: category, // the closet already knows it: skip classification
           subtype: subtypeFor(category, g),
+          size: SIZES.includes(g.size) ? g.size : undefined, // none = fitted to the body
         });
       }
       if (!items.length) return res.status(400).json({ error: 'No supported garments selected.' });
-      const r = await modal('/jobs', { person_image: personImage, items });
+      // Optional body preference: sets which size counts as a regular fit (M without it).
+      const body = Number(heightCm) > 0 && Number(weightKg) > 0
+        ? { height_cm: Number(heightCm), weight_kg: Number(weightKg) }
+        : {};
+      const r = await modal('/jobs', { person_image: personImage, items, ...body });
       const jobId = ((await r.json()) as any).job_id;
       // per-step images for debugging: <MODAL_VTON_URL>/jobs/<id>/steps/<n>/image
       console.log(`modal vton job ${jobId}: ${items.map((i) => i.category_override).join(', ')}`);
