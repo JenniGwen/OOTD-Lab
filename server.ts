@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import { GoogleGenAI, Type } from '@google/genai';
 import { createServer as createViteServer } from 'vite';
 import { vtonRouter } from './vton.server'; // adjust path to where you put the file
+import { modalVtonRouter } from './vton.modal';
 
 dotenv.config({ path: ['.env.local', '.env'] });
 
@@ -18,7 +19,12 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 // Self-hosted try-on (FASHN or Leffa, see server.py). Set VTON_BACKEND_URL
 // (e.g. http://localhost:8000) to use it; otherwise the Gemini router handles /tryon.
 const VTON_BACKEND_URL = process.env.VTON_BACKEND_URL;
-if (VTON_BACKEND_URL) {
+// Hybrid pipeline on Modal (modal_app/). MODAL_VTON_URL is the URL printed by
+// `modal deploy app.py`; it takes priority over VTON_BACKEND_URL and Gemini.
+const MODAL_VTON_URL = process.env.MODAL_VTON_URL;
+if (MODAL_VTON_URL) {
+  app.use('/api/vton', modalVtonRouter(MODAL_VTON_URL));
+} else if (VTON_BACKEND_URL) {
   app.post('/api/vton/tryon', async (req, res) => {
     try {
       const r = await fetch(new URL('/api/vton/tryon', VTON_BACKEND_URL), {
