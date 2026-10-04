@@ -113,6 +113,15 @@ Catatan perilaku:
 - Setelah tiap step Qwen, warna pakaian dicek terhadap input step itu (`garment_lock.py`, CPU).
   Pakaian yang warnanya bergeser lebih dari `QWEN_COLOR_LOCK_THRESHOLD` ditempel ulang dari
   hasil step sebelumnya dan dicatat di `warnings`.
+- **Size (opsional).** Tiap item boleh diberi `size` (`XS`, `S`, `M`, `L`, `XL`) dan job boleh diberi
+  `height_cm` + `weight_kg`. Tinggi/berat menentukan size yang pas di badan (tabel BMI generik di
+  `config.py`: `recommend_size`); tanpa keduanya badan dianggap `M` dan pakaian mengikuti foto.
+  Selisih size item dengan size badan menjadi `fit`: `tight`, `slim`, `regular`, `loose`, `oversized`.
+  Item tanpa `size` selalu `regular`.
+- Leffa selalu memasang pakaian pas badan (memperbesar mask-nya hanya menghasilkan artefak), jadi
+  atasan / bawahan / dress / luaran dengan fit selain `regular` dikerjakan Qwen dengan kalimat fit di
+  prompt (`QWEN_FIT_PHRASES`). Artinya item ber-size non-regular memakai H100, bukan L40S.
+- `POST /jobs/{id}/replace` menerima `size` untuk mengganti ukuran satu step saja.
 - Step gagal → job `failed`, gambar step sebelumnya tetap ada, `error` menjelaskan penyebabnya.
 - `total_cost_usd` kumulatif: biaya run yang diganti lewat `/replace` tetap dihitung.
 - Semua gambar dinormalisasi ke 768×1024 (canvas putih), sama dengan resolusi kerja Leffa.

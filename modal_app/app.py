@@ -54,7 +54,7 @@ def build_ui():
     import gradio as gr
     from PIL import Image
 
-    headers = ["item_id", "file", "category", "subtype", "confidence", "needs_review"]
+    headers = ["item_id", "file", "category", "subtype", "confidence", "needs_review", "size"]
 
     def read_file(path: str) -> bytes:
         with open(path, "rb") as f:
@@ -76,10 +76,10 @@ def build_ui():
             if isinstance(result, Exception):
                 result = {"category": "unknown", "subtype": "", "confidence": 0.0, "needs_review": True}
             rows.append([item_id, path.rsplit("/", 1)[-1], result["category"], result["subtype"],
-                         result["confidence"], "ya" if result["needs_review"] else "tidak"])
+                         result["confidence"], "ya" if result["needs_review"] else "tidak", ""])
         return rows
 
-    def run(person, files, rows, mode):
+    def run(person, files, rows, mode, height, weight):
         if not person:
             raise gr.Error("Upload foto orang dulu.")
         if not files:
@@ -95,14 +95,14 @@ def build_ui():
             elif category not in _CATEGORY_CHOICES:
                 raise gr.Error(f"Kategori '{row[2]}' untuk {row[0]} tidak valid. Pilih salah satu: {', '.join(_CATEGORY_CHOICES)}.")
             items.append({"item_id": str(row[0]), "image": read_file(path), "category_override": category,
-                          "subtype": str(row[3] or "")})
+                          "subtype": str(row[3] or ""), "size": str(row[6] or "") if len(row) > 6 else ""})
         try:
-            job_id = create_job(read_file(person), items, mode)
+            job_id = create_job(read_file(person), items, mode, height_cm=height or None, weight_kg=weight or None)
         except ValueError as error:
             raise gr.Error(str(error))
         return job_id, gr.Timer(active=True)
 
-    def replace(job_id, step_number, new_image, category):
+    def replace(job_id, step_number, new_image, category, size):
         if not job_id:
             raise gr.Error("Belum ada job.")
         try:
@@ -111,6 +111,7 @@ def build_ui():
                 int(step_number),
                 read_file(new_image) if new_image else None,
                 category if category in _CATEGORY_CHOICES else None,
+                size if size in config.SIZES else None,
             )
         except JobNotFound:
             raise gr.Error("Job tidak ditemukan.")
@@ -127,8 +128,8 @@ def build_ui():
             return [], "Job tidak ditemukan.", "", gr.Timer(active=False)
         results_vol.reload()
         gallery = []
-        lines = ["| step | item | kategori | engine | status | GPU dtk | cold start dtk | biaya |",
-                 "|---|---|---|---|---|---|---|---|"]
+        lines = ["| step | item | kategori | size (fit) | engine | status | GPU dtk | cold start dtk | biaya |",
+                 "|---|---|---|---|---|---|---|---|---|"]
         for step in job["steps"]:
             if step["status"] == "done" and step["image_path"]:
                 try:
@@ -139,11 +140,16 @@ def build_ui():
                     pass
             note = f" — {step['error']}" if step["error"] else ""
             lines.append(
-                f"| {step['step']} | {step['item_id']} | {step['category']} | {step['engine'] or '-'} "
+                f"| {step['step']} | {step['item_id']} | {step['category']} "
+                f"| {step.get('size') or '-'} ({step.get('fit_label', 'regular')}) | {step['engine'] or '-'} "
                 f"| {step['status']}{note} | {step['gpu_seconds']:.1f} | {step['cold_start_seconds']:.1f} "
                 f"| ${step['cost_usd']:.4f} |"
             )
         status = f"**Status: {job['status']}** (step {job['current_step']}/{len(job['steps'])})"
+        body = job.get("body") or {}
+        if body.get("size"):
+            status += (f"\n\nBadan: {body['height_cm']:.0f} cm, {body['weight_kg']:.0f} kg → "
+                       f"size yang pas **{body['size']}**")
         if job.get("error"):
             status += f"\n\n**Error:** {job['error']}"
         if job["warnings"]:
@@ -166,8 +172,12 @@ def build_ui():
                 classify_button = gr.Button("1. Klasifikasi")
                 table = gr.Dataframe(
                     headers=headers, type="array", interactive=True, wrap=True,
-                    label=f"Hasil klasifikasi — koreksi kolom category bila salah ({', '.join(_CATEGORY_CHOICES)})",
+                    label=f"Hasil klasifikasi — koreksi kolom category bila salah ({', '.join(_CATEGORY_CHOICES)}); "
+                          f"kolom size opsional ({', '.join(config.SIZES)}), kosong = pas badan",
                 )
+                with gr.Row():
+                    height = gr.Number(label="Tinggi badan (cm) — opsional", value=None, minimum=0)
+                    weight = gr.Number(label="Berat badan (kg) — opsional", value=None, minimum=0)
                 mode = gr.Radio(list(config.QWEN_MODES), value=config.QWEN_DEFAULT_MODE,
                                 label="Mode Qwen (alas/aksesoris)")
                 run_button = gr.Button("2. Jalankan try-on", variant="primary")
@@ -183,14 +193,16 @@ def build_ui():
                                          type="filepath", height=200)
                     new_category = gr.Dropdown(["(otomatis)"] + _CATEGORY_CHOICES, value="(otomatis)",
                                                label="Kategori")
+                    new_size = gr.Dropdown(["(tetap)"] + config.SIZES, value="(tetap)", label="Size")
                     replace_button = gr.Button("Ganti & jalankan ulang")
 
         timer = gr.Timer(3, active=False)
         outputs = [gallery, status_md, cost_md, timer]
         garments.change(preview, inputs=garments, outputs=garment_preview)
         classify_button.click(classify, inputs=garments, outputs=table)
-        run_button.click(run, inputs=[person, garments, table, mode], outputs=[job_box, timer])
-        replace_button.click(replace, inputs=[job_box, step_number, new_image, new_category], outputs=timer)
+        run_button.click(run, inputs=[person, garments, table, mode, height, weight], outputs=[job_box, timer])
+        replace_button.click(replace, inputs=[job_box, step_number, new_image, new_category, new_size],
+                             outputs=timer)
         refresh_button.click(refresh, inputs=job_box, outputs=outputs)
         timer.tick(refresh, inputs=job_box, outputs=outputs)
     return demo
@@ -245,9 +257,11 @@ def web():
                 "image": load_image_ref(item.get("image")),
                 "category_override": item.get("category_override") or None,
                 "subtype": item.get("subtype") or None,
+                "size": item.get("size") or None,
             })
         return create_job(load_image_ref(body.get("person_image")), items,
-                          body.get("qwen_mode") or config.QWEN_DEFAULT_MODE)
+                          body.get("qwen_mode") or config.QWEN_DEFAULT_MODE,
+                          height_cm=body.get("height_cm"), weight_kg=body.get("weight_kg"))
 
     @api.get("/")
     def root():
@@ -293,7 +307,7 @@ def web():
             raise ValueError("step_index (integer, 1-based) is required")
         image = body.get("image")
         return start_replace(job_id, step_index, load_image_ref(image) if image else None,
-                             body.get("category_override") or None)
+                             body.get("category_override") or None, body.get("size") or None)
 
     @api.post("/jobs/{job_id}/replace")
     async def post_replace(job_id: str, request: Request):
