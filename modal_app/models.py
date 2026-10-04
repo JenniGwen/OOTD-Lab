@@ -154,6 +154,41 @@ class Leffa:
 
 
 @app.cls(
+    image=leffa_image,  # for Leffa's human parsing (ONNX, runs on CPU): no GPU here
+    cpu=2.0,
+    memory=4096,
+    volumes={config.LEFFA_CKPT_DIR: leffa_vol},
+    scaledown_window=config.SCALEDOWN_WINDOW,
+    timeout=300,
+)
+class GarmentLock:
+    @modal.enter()
+    def load(self):
+        from preprocess.humanparsing.run_parsing import Parsing
+
+        ckpt = config.LEFFA_CKPT_DIR
+        self.parsing = Parsing(
+            atr_path=f"{ckpt}/humanparsing/parsing_atr.onnx",
+            lip_path=f"{ckpt}/humanparsing/parsing_lip.onnx",
+        )
+
+    @modal.method()
+    def restore(self, before: bytes, after: bytes, skip: list[str] = []) -> dict:
+        """before: input of a Qwen step, after: its output. See garment_lock.py."""
+        import numpy as np
+        from leffa_utils.utils import label_map
+
+        from garment_lock import restore_recolored
+
+        before_img = fit_canvas(image_from_bytes(before))
+        after_img = fit_canvas(image_from_bytes(after))
+        parse_before = np.array(self.parsing(before_img.resize((384, 512)))[0])
+        parse_after = np.array(self.parsing(after_img.resize((384, 512)))[0])
+        image, restored = restore_recolored(before_img, after_img, parse_before, parse_after, label_map, skip)
+        return {"image": image_to_png(image) if restored else after, "restored": restored}
+
+
+@app.cls(
     image=qwen_image,
     gpu=config.QWEN_GPU,
     cpu=config.QWEN_CPU,
@@ -208,8 +243,7 @@ class QwenEdit:
 
         person_img = fit_canvas(image_from_bytes(person))
         garment_img = image_from_bytes(garment)
-        item = (subtype or "").strip() or config.QWEN_DEFAULT_ITEM[category]
-        prompt = config.QWEN_PROMPTS[category].format(item=item)
+        prompt = config.QWEN_PROMPTS[category]  # subtype is not used: Qwen reads the item from image 2
 
         with torch.inference_mode():
             output = self.pipe(

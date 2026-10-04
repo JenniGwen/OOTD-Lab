@@ -9,6 +9,7 @@ Layout on the `tryon-results` Volume:
 Step numbers are 1-based and include skipped steps, so `step_index` in
 replace_item always matches `step` in the JobStatus.
 """
+from typing import Optional
 import json
 import os
 import time
@@ -17,7 +18,7 @@ import uuid
 import config
 from classifier import classify_item
 from common import ENGINE_SPECS, app, cpu_image, fit_canvas, image_from_bytes, image_to_png, jobs, results_vol
-from models import Leffa, QwenEdit
+from models import GarmentLock, Leffa, QwenEdit
 
 ACTIVE_STATUSES = ("queued", "classifying", "running")
 _RUNNABLE = [c for c in config.CATEGORIES if c != "unknown"]
@@ -140,8 +141,8 @@ def create_job(person: bytes, items: list[dict], qwen_mode: str = config.QWEN_DE
     return job_id
 
 
-def start_replace(job_id: str, step_index: int, new_garment: bytes | None = None,
-                  category_override: str | None = None) -> dict:
+def start_replace(job_id: str, step_index: int, new_garment: Optional[bytes] = None,
+                  category_override: Optional[str] = None) -> dict:
     """Validate and queue a replace_item run. Returns the public status."""
     job = load_job(job_id)
     if job["status"] in ACTIVE_STATUSES:
@@ -163,7 +164,7 @@ def start_replace(job_id: str, step_index: int, new_garment: bytes | None = None
 
 # ---------------------------------------------------------------- planning
 def _new_step(number: int, item: dict, category: str, subtype: str) -> dict:
-    engine = config.ENGINE_BY_CATEGORY.get(category)
+    engine = config.engine_for(category, subtype)
     return {
         "step": number,
         "item_id": item["item_id"],
@@ -193,9 +194,7 @@ def build_plan(classified: list[dict]) -> tuple[list[dict], list[str]]:
         category = item["category"]
         step = _new_step(number, item, category, item.get("subtype", ""))
         skip_reason = None
-        if category not in config.ENGINE_BY_CATEGORY:
-            skip_reason = "category unknown; set it manually and use replace"
-        elif has_dress and category in ("atasan", "bawahan"):
+        if has_dress and category in ("atasan", "bawahan"):
             skip_reason = "skipped because the outfit contains a dress"
         elif category in config.SINGLE_SLOT_CATEGORIES and category in used_slots:
             skip_reason = f"only one '{category}' item per outfit; the first one is used"
@@ -207,8 +206,8 @@ def build_plan(classified: list[dict]) -> tuple[list[dict], list[str]]:
             used_slots.add(category)
             if item.get("needs_review"):
                 warnings.append(
-                    f"{item['item_id']}: classified as {category} with low confidence "
-                    f"({item.get('confidence', 0):.2f}); check the result"
+                    f"{item['item_id']}: type not recognized (confidence "
+                    f"{item.get('confidence', 0):.2f}); left to Qwen, check the result"
                 )
         steps.append(step)
     return steps, warnings
@@ -232,6 +231,10 @@ def _classify_items(job: dict) -> list[dict]:
                     "confidence": 1.0, "needs_review": False}
         else:
             info = results[item["garment_path"]]
+            if info.get("needs_review"):
+                # The classifier is not sure what this is: do not guess a Leffa slot,
+                # let Qwen work out the item and how it is worn.
+                info = {**info, "category": "unknown", "subtype": ""}
         classified.append({**item, "category": info["category"], "subtype": info.get("subtype", ""),
                            "confidence": info.get("confidence", 0.0), "needs_review": info.get("needs_review", False)})
     return classified
@@ -280,6 +283,19 @@ def _execute(job: dict, start_step: int = 1) -> dict:
 
         wall = time.monotonic() - started
         gpu_seconds = out["exec_seconds"]
+        skip = config.QWEN_COLOR_LOCK_SKIP.get(step["category"], [])
+        if step["engine"] == "qwen" and skip is not None:
+            # Qwen repaints everything: put back any garment whose color it changed.
+            try:
+                locked = GarmentLock().restore.remote(current, out["image"], skip)
+                out["image"] = locked["image"]
+                if locked["restored"]:
+                    job["warnings"].append(
+                        f"step {step['step']} ({step['category']}): Qwen changed the color of "
+                        f"{', '.join(locked['restored'])}; restored from the previous step"
+                    )
+            except Exception as error:
+                job["warnings"].append(f"step {step['step']}: garment color check failed ({type(error).__name__})")
         # Container boot + model load are billed too, but only when this call started the container.
         cold_start = max(0.0, wall - gpu_seconds) if out["was_cold"] else 0.0
         path = f"{job_dir(job['job_id'])}/step{step['step']}_{step['category']}.png"
@@ -321,8 +337,8 @@ def run_pipeline(job_id: str) -> dict:
 
 
 @app.function(image=cpu_image, volumes={config.RESULTS_DIR: results_vol}, timeout=3600)
-def replace_item(job_id: str, step_index: int, new_garment: bytes | None = None,
-                 category_override: str | None = None) -> dict:
+def replace_item(job_id: str, step_index: int, new_garment: Optional[bytes] = None,
+                 category_override: Optional[str] = None) -> dict:
     """Re-run from `step_index` (1-based) using the stored output of the step before it.
 
     new_garment=None retries the step with the same garment. Later steps are
@@ -360,7 +376,7 @@ def replace_item(job_id: str, step_index: int, new_garment: bytes | None = None,
         if category not in config.ENGINE_BY_CATEGORY:
             raise ValueError(f"step {step_index} has category '{category}'; pass category_override")
 
-        engine = config.ENGINE_BY_CATEGORY[category]
+        engine = config.engine_for(category, subtype)
         step.update(category=category, subtype=subtype, engine=engine, gpu=ENGINE_SPECS[engine]["gpu"],
                     status="pending", error=None)
         for later in job["steps"][step_index - 1:]:

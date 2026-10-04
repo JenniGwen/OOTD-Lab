@@ -3,6 +3,7 @@
 Edit this file only; the other modules read everything from here.
 """
 import math
+import re
 
 # ---------------------------------------------------------------- app / infra
 APP_NAME = "ootd-tryon"
@@ -34,18 +35,33 @@ PRICE_CPU_CORE = 0.0000131
 PRICE_MEM_GIB = 0.00000222
 
 # ---------------------------------------------------------------- categories
-CATEGORIES = ["atasan", "bawahan", "dress", "alas", "aksesoris", "unknown"]
+CATEGORIES = ["atasan", "bawahan", "dress", "luaran", "alas", "aksesoris", "unknown"]
 # Order garments are put on. A dress replaces atasan + bawahan.
-CATEGORY_ORDER = ["atasan", "dress", "bawahan", "alas", "aksesoris"]
+CATEGORY_ORDER = ["atasan", "dress", "bawahan", "luaran", "alas", "aksesoris"]
 # Only one garment per slot for these; extra items are skipped with a warning.
-SINGLE_SLOT_CATEGORIES = ["atasan", "dress", "bawahan", "alas"]
+SINGLE_SLOT_CATEGORIES = ["atasan", "dress", "bawahan", "luaran", "alas"]
 ENGINE_BY_CATEGORY = {
     "atasan": "leffa",
     "bawahan": "leffa",
     "dress": "leffa",
+    # Leffa only knows upper body / lower body / dress. Everything else goes to Qwen,
+    # which works out from the garment photo how the item is worn.
+    "luaran": "qwen",
     "alas": "qwen",
     "aksesoris": "qwen",
+    "unknown": "qwen",  # runs last, with a generic prompt
 }
+# Leffa turns a skirt into trousers when the person in the photo wears trousers, so
+# skirts go to Qwen as well.
+QWEN_BAWAHAN_SUBTYPES = r"\b(skirt|rok)\b"
+
+
+def engine_for(category: str, subtype: str = "") -> str:
+    if category == "bawahan" and re.search(QWEN_BAWAHAN_SUBTYPES, (subtype or "").lower()):
+        return "qwen"
+    return ENGINE_BY_CATEGORY[category]
+
+
 MAX_ITEMS_PER_JOB = 8
 MAX_IMAGE_BYTES = 15 * 1024 * 1024
 
@@ -122,29 +138,53 @@ QWEN_LIGHTNING_SCHEDULER = {
     "use_karras_sigmas": False,
 }
 
+# Qwen re-generates the whole image, so the prompt has to pin down everything that must
+# not change. The prompts never name the item: Qwen sees it in image 2 and works out what
+# it is and how it is worn (a wrong name, e.g. "sandals" for clogs, makes it ignore the photo).
+# Do not list items that are not in the outfit (not even as "no hat"): naming them makes
+# the model add them.
+_QWEN_MATCH = "It must match image 2 exactly: same type, color, pattern, material and shape. "
 _QWEN_KEEP = (
-    "Keep the person's face, hair, skin tone, body shape, pose, every other piece of clothing, "
-    "the background, the lighting and the framing exactly the same as in image 1. "
-    "Do not change anything else."
+    "Keep everything else exactly as in image 1: the same face, hair, body, pose, the same "
+    "colors of all other clothing, the same background and framing. Do not add any other item."
 )
-# {item} is replaced by the classified subtype (e.g. "sneakers", "hat").
 QWEN_PROMPTS = {
+    "bawahan": (
+        "Replace the lower-body garment the person in image 1 is wearing with the garment from "
+        "image 2, worn at the waist. Remove the old lower-body garment completely: where the "
+        "new garment does not cover the legs, show bare legs. "
+        + _QWEN_MATCH + "Keep its length as in image 2. " + _QWEN_KEEP
+    ),
+    "luaran": (
+        "Dress the person in image 1 in the outer garment from image 2, worn over the top they "
+        "already wear. " + _QWEN_MATCH + _QWEN_KEEP
+    ),
     "alas": (
-        "Image 1 is a photo of a person. Image 2 shows footwear: {item}. "
-        "Put the {item} from image 2 on the person's feet in image 1, replacing any footwear "
-        "they currently wear. Preserve the exact color, material, shape and details of the {item}. "
-        + _QWEN_KEEP
+        "Put the footwear from image 2 on the feet of the person in image 1, replacing the "
+        "footwear they currently wear. " + _QWEN_MATCH + _QWEN_KEEP
     ),
     "aksesoris": (
-        "Image 1 is a photo of a person. Image 2 shows an accessory: {item}. "
-        "Add the {item} from image 2 to the person in image 1, worn or carried in its natural "
-        "position (hat on the head, glasses on the face, bag on the shoulder or in the hand, "
-        "watch on the wrist, jewelry where it is normally worn). "
-        "Preserve the exact color, material, shape and details of the {item}. "
-        + _QWEN_KEEP
+        "Add the accessory from image 2 to the person in image 1, worn or carried the way this "
+        "kind of accessory normally is. Add only this one accessory. " + _QWEN_MATCH + _QWEN_KEEP
+    ),
+    "unknown": (
+        "Put the fashion item from image 2 on the person in image 1, worn the way this kind of "
+        "item normally is, replacing only what it has to cover. " + _QWEN_MATCH + _QWEN_KEEP
     ),
 }
-QWEN_DEFAULT_ITEM = {"alas": "shoes", "aksesoris": "accessory"}
+
+# Garments (Leffa parsing labels) that a Qwen step must not recolor, see garment_lock.py.
+LOCKED_GARMENT_LABELS = ["upper_clothes", "pants", "skirt", "dress"]
+# Labels a step is allowed to repaint: outerwear covers the top, and an item of unknown
+# type may cover anything (None = no check).
+QWEN_COLOR_LOCK_SKIP = {
+    "bawahan": ["pants", "skirt", "dress"],
+    "luaran": ["upper_clothes", "dress"],
+    "unknown": None,
+}
+# Largest allowed move of a garment's average R/G/B (0-255) across one Qwen step.
+QWEN_COLOR_LOCK_THRESHOLD = 12
+QWEN_COLOR_LOCK_MIN_PIXELS = 200  # at parsing resolution (384x512); ignore slivers
 
 # ---------------------------------------------------------------- classifier
 # Modal Shared Endpoint (OpenAI-compatible). The URL and proxy token come from a
@@ -162,16 +202,18 @@ CONFIDENCE_THRESHOLD = 0.6
 
 CLASSIFY_PROMPT = (
     "Classify the clothing item in this image. Reply ONLY with JSON matching: "
-    '{"category": one of [atasan, bawahan, dress, alas, aksesoris, unknown], '
+    '{"category": one of [atasan, bawahan, dress, luaran, alas, aksesoris, unknown], '
     '"subtype": short English noun, "confidence": 0-1}. '
-    "atasan=tops (shirt, t-shirt, jacket), bawahan=bottoms (pants, jeans, skirt, shorts), "
+    "atasan=tops worn directly (shirt, t-shirt, blouse, sweater), "
+    "luaran=outerwear worn over a top (jacket, blazer, coat, cardigan), bawahan=bottoms (pants, jeans, skirt, shorts), "
     "dress=one-piece dress, alas=footwear, aksesoris=bags, hats, glasses, jewelry."
 )
 
 # Fallback when the endpoint is not configured, unreachable or returns garbage.
 CLIP_MODEL_ID = "patrickjohncyh/fashion-clip"
 CLIP_LABELS = {
-    "atasan": ["t-shirt", "shirt", "blouse", "sweater", "hoodie", "jacket", "blazer", "cardigan"],
+    "atasan": ["t-shirt", "shirt", "blouse", "sweater", "hoodie"],
+    "luaran": ["jacket", "blazer", "cardigan", "coat"],
     "bawahan": ["pants", "jeans", "shorts", "skirt", "sweatpants"],
     "dress": ["dress", "gown", "jumpsuit"],
     "alas": ["sneakers", "shoes", "boots", "sandals", "heels"],

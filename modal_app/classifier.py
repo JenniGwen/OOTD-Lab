@@ -3,6 +3,7 @@
 `classify_item` never raises for a bad image/model answer: it returns
 `needs_review: true` so the user can correct the category in the UI.
 """
+from typing import Optional
 import base64
 import io
 import json
@@ -56,7 +57,7 @@ def _data_url(image_bytes: bytes) -> str:
     return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
 
 
-def parse_classification(text: str) -> dict | None:
+def parse_classification(text: str) -> Optional[dict]:
     """Pull {category, subtype, confidence} out of a model reply; None if invalid."""
     text = re.sub(r"<think>.*?</think>", "", text or "", flags=re.DOTALL)
     # the answer is the last JSON object in the reply (thinking models may ramble first)
@@ -82,7 +83,7 @@ def parse_classification(text: str) -> dict | None:
     return None
 
 
-def _classify_vl(image_bytes: bytes) -> dict | None:
+def _classify_vl(image_bytes: bytes) -> Optional[dict]:
     """Ask the shared endpoint. Returns None when it is not configured or the reply is unusable."""
     import httpx
 

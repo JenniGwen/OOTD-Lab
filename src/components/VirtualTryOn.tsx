@@ -42,11 +42,13 @@ const downscale = (src: string, max = 1024) =>
     img.src = src;
   });
 
-async function post(url: string, body: unknown): Promise<string> {
-  const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+const MODAL_CATEGORIES = ['Luaran', 'Sepatu', 'Aksesoris']; // also tried on when the Modal backend is used
+
+async function api(url: string, body?: unknown): Promise<any> {
+  const r = await fetch(url, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : undefined);
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(data.detail || data.error || `Request failed (${r.status})`);
-  return data.image as string;
+  return data;
 }
 
 const box = 'border border-[#C8D9A5] bg-white rounded-2xl';
@@ -66,6 +68,11 @@ export const VirtualTryOn: React.FC<VirtualTryOnProps> = ({
   const [tips, setTips] = useState(false);
   const [menu, setMenu] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => { alive.current = false; };
+  }, []);
 
   const categories = useMemo(() => {
     const all = Array.from(new Set(closetItems.map((i) => i.category as string)));
@@ -136,6 +143,29 @@ export const VirtualTryOn: React.FC<VirtualTryOnProps> = ({
     fr.readAsDataURL(f);
   };
 
+  // Modal backend: the outfit is put on one item at a time, so poll the job and
+  // show each finished step while the next one runs.
+  const waitForJob = async (jobId: string) => {
+    let misses = 0;
+    for (let i = 0; i < 400; i++) {
+      await new Promise((r) => setTimeout(r, 3000));
+      if (!alive.current) break;
+      let job;
+      try {
+        job = await api(`/api/vton/jobs/${jobId}`);
+        misses = 0;
+      } catch (e) {
+        if (++misses > 5) throw e;
+        continue;
+      }
+      setStage(job.stage);
+      setProgress(job.progress);
+      if (job.status === 'done' || job.status === 'failed') return job;
+      if (job.previewStep) setResult(`/api/vton/jobs/${jobId}/steps/${job.previewStep}/image`);
+    }
+    throw new Error('Try-on timed out.');
+  };
+
   const generate = async () => {
     if (!personPhoto) return setError('Upload a full-body photo first (Image > Upload photo).');
     if (!modelGarments.length) return setError('Pick at least one top, bottom, or one-piece item.');
@@ -144,14 +174,19 @@ export const VirtualTryOn: React.FC<VirtualTryOnProps> = ({
     try {
       setStage('Dressing you...');
       setProgress(40);
-      const img = await post('/api/vton/tryon', {
+      const pick = ({ name, category, subCategory, imageUrl }: ClothingItem) => ({ name, category, subCategory, imageUrl });
+      let data = await api('/api/vton/tryon', {
         personImage: personPhoto,
         assetBaseUrl: window.location.origin,
-        garments: modelGarments.map(({ name, category, subCategory, imageUrl }) => ({ name, category, subCategory, imageUrl })),
+        garments: modelGarments.map(pick),
+        extras: sideItems.filter(({ category }) => MODAL_CATEGORIES.includes(category as string)).map(pick),
       });
-      setResult(img);
+      if (data.jobId) data = await waitForJob(data.jobId);
+      const img = data.image as string;
+      if (img) setResult(img);
+      if (data.error || !img) throw new Error(data.error || 'Generation failed');
       setProgress(100);
-      setStage('Done');
+      setStage('Done' + (data.warnings?.length ? ` · ${data.warnings[0]}` : ''));
       onSaveToHistory({
         id: `vton-${Date.now()}`,
         userPhoto: personPhoto,

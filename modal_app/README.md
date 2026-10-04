@@ -1,14 +1,14 @@
 # OOTD-Lab — Hybrid Virtual Try-On di Modal
 
 Pipeline try-on berantai: foto orang + beberapa foto pakaian → klasifikasi otomatis →
-dipasang satu per satu (atasan → dress → bawahan → alas → aksesoris). Hasil tiap step
+dipasang satu per satu (atasan → dress → bawahan → luaran → alas → aksesoris). Hasil tiap step
 disimpan, jadi satu item bisa diganti tanpa mengulang step sebelumnya.
 
 | Komponen | Model | Hardware |
 |---|---|---|
 | Klasifikasi | Shared Endpoint `Qwen/Qwen3.8-Max-VL-Thinking`, fallback FashionCLIP | CPU |
 | Atasan / bawahan / dress | Leffa (`virtual_tryon.pth`, `virtual_tryon_dc.pth`) | L40S |
-| Alas / aksesoris | `Qwen/Qwen-Image-Edit-2509` (+ Lightning LoRA) | H100 |
+| Luaran / alas / aksesoris / tipe tidak dikenali | `Qwen/Qwen-Image-Edit-2509` (+ Lightning LoRA) | H100 |
 | API + UI + orkestrasi | FastAPI + Gradio | CPU |
 
 ```
@@ -103,7 +103,16 @@ Catatan perilaku:
 - Status step: `pending`, `running`, `done`, `failed`, `skipped` (dua yang pertama ditambahkan
   supaya progres terlihat).
 - Jika ada dress, atasan & bawahan di-skip dengan warning. Satu outfit hanya satu atasan /
-  bawahan / dress / alas; aksesoris boleh lebih dari satu.
+  bawahan / dress / luaran / alas; aksesoris boleh lebih dari satu.
+- Leffa hanya mengenal atasan / bawahan / dress. Yang dikerjakan Qwen: luaran (dipakai di
+  atas atasan), rok (`QWEN_BAWAHAN_SUBTYPES`; Leffa mengubah rok jadi celana kalau orangnya
+  memakai celana), dan item `unknown` (dipasang paling akhir dengan prompt umum).
+- Hasil klasifikasi dengan confidence di bawah `CONFIDENCE_THRESHOLD` diperlakukan sebagai
+  `unknown`, jadi dikerjakan Qwen, bukan ditebak slot Leffa-nya.
+- Prompt Qwen tidak menyebut nama item: Qwen membaca jenis item dan cara pakainya dari fotonya.
+- Setelah tiap step Qwen, warna pakaian dicek terhadap input step itu (`garment_lock.py`, CPU).
+  Pakaian yang warnanya bergeser lebih dari `QWEN_COLOR_LOCK_THRESHOLD` ditempel ulang dari
+  hasil step sebelumnya dan dicatat di `warnings`.
 - Step gagal → job `failed`, gambar step sebelumnya tetap ada, `error` menjelaskan penyebabnya.
 - `total_cost_usd` kumulatif: biaya run yang diganti lewat `/replace` tetap dihitung.
 - Semua gambar dinormalisasi ke 768×1024 (canvas putih), sama dengan resolusi kerja Leffa.

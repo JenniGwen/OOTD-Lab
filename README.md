@@ -55,3 +55,15 @@ Leffa's released weights are trained on VITON-HD/DressCode (research licenses) �
 `modal_app/` contains the chained try-on pipeline (classification → Leffa for tops/bottoms/dresses →
 Qwen-Image-Edit for shoes/accessories) with a FastAPI + Gradio front end. See
 [modal_app/README.md](modal_app/README.md) for setup, curl examples and cost estimates.
+
+To use it from the try-on page, put the URL printed by `modal deploy app.py` in `.env.local`
+and restart `npm run dev`:
+
+```bash
+MODAL_VTON_URL=https://<workspace>--ootd-tryon-web.modal.run
+```
+
+`vton.modal.ts` then sends the selected top/bottom/one-piece plus outerwear, shoes and accessories as one
+Modal job and the page shows each finished step while the job runs. `MODAL_VTON_URL` takes
+priority over `VTON_BACKEND_URL` and Gemini. If the Modal app is deployed with
+`requires_proxy_auth=True`, also set `MODAL_PROXY_TOKEN_ID` and `MODAL_PROXY_TOKEN_SECRET`.

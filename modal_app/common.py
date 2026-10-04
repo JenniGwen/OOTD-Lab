@@ -18,7 +18,8 @@ leffa_vol = modal.Volume.from_name(config.LEFFA_CKPT_VOLUME, create_if_missing=T
 results_vol = modal.Volume.from_name(config.RESULTS_VOLUME, create_if_missing=True)
 jobs = modal.Dict.from_name(config.JOBS_DICT, create_if_missing=True)
 
-_LOCAL_MODULES = ("config", "common", "models", "classifier", "pipeline", "leffa_mask_fix", "download_weights")
+_LOCAL_MODULES = ("config", "common", "models", "classifier", "pipeline", "leffa_mask_fix", "garment_lock",
+                  "download_weights")
 # GPU containers must never download weights: everything comes from the Volumes.
 _OFFLINE_ENV = {"HF_HOME": config.HF_HOME, "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"}
 

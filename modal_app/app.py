@@ -90,7 +90,9 @@ def build_ui():
         items = []
         for path, row in zip(files, rows):
             category = str(row[2]).strip().lower()
-            if category not in _CATEGORY_CHOICES:
+            if category == "unknown":
+                category = None  # classified again by the pipeline; Qwen handles it if still unknown
+            elif category not in _CATEGORY_CHOICES:
                 raise gr.Error(f"Kategori '{row[2]}' untuk {row[0]} tidak valid. Pilih salah satu: {', '.join(_CATEGORY_CHOICES)}.")
             items.append({"item_id": str(row[0]), "image": read_file(path), "category_override": category,
                           "subtype": str(row[3] or "")})
