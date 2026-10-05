@@ -2,8 +2,8 @@ import express from 'express';
 import path from 'path';
 import dotenv from 'dotenv';
 import { GoogleGenAI, Type } from '@google/genai';
-import { vtonRouter } from './vton.server'; // adjust path to where you put the file
-import { modalVtonRouter } from './vton.modal';
+import { vtonRouter } from './vton.server.js'; // adjust path to where you put the file
+import { modalVtonRouter } from './vton.modal.js';
 
 dotenv.config({ path: ['.env.local', '.env'] });
 
