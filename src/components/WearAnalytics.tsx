@@ -142,7 +142,7 @@ export const WearAnalytics: React.FC<WearAnalyticsProps> = ({ items, onLogWear, 
                     <div className="flex items-center gap-2 mt-3">
                       <button onClick={() => onLogWear(item.id)}
                         className="flex items-center gap-1 text-xs font-medium rounded-full px-3 py-1.5 bg-white border border-black/10 hover:border-black/30 cursor-pointer transition-colors">
-                        <Plus className="w-3.5 h-3.5" /> Log wear
+                        <Plus className="w-3.5 h-3.5" /> Wore it today
                       </button>
                       <button onClick={() => onSelectForMixMatch(item)}
                         className="flex items-center gap-1 text-xs font-medium rounded-full px-3 py-1.5 text-white cursor-pointer hover:opacity-90 transition-opacity"

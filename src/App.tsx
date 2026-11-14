@@ -171,8 +171,27 @@ export default function App() {
   // Sparse vermilion and sage polka dots keep the white canvas lively without crowding content.
   const dotSvg = `url("data:image/svg+xml,%3Csvg width='96' height='96' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='14' cy='20' r='7' fill='%23e34b3f' fill-opacity='0.14'/%3E%3Ccircle cx='58' cy='69' r='4' fill='%23e34b3f' fill-opacity='0.16'/%3E%3Ccircle cx='82' cy='28' r='1.5' fill='%23a8bf8f' fill-opacity='0.42'/%3E%3Ccircle cx='39' cy='49' r='1' fill='%23e34b3f' fill-opacity='0.28'/%3E%3Ccircle cx='74' cy='89' r='1.2' fill='%23a8bf8f' fill-opacity='0.35'/%3E%3C/svg%3E")`;
 
+  // Polka-dot accents fade toward the center to keep the content area calm.
+  const dots = (
+    <div
+      aria-hidden="true"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 0,
+        pointerEvents: 'none',
+        backgroundImage: dotSvg,
+        backgroundSize: '96px 96px',
+        WebkitMaskImage: 'radial-gradient(72% 68% at 50% 50%, transparent 10%, rgba(0,0,0,0.2) 35%, rgba(0,0,0,0.55) 60%, rgba(0,0,0,1) 88%)',
+        maskImage: 'radial-gradient(72% 68% at 50% 50%, transparent 10%, rgba(0,0,0,0.2) 35%, rgba(0,0,0,0.55) 60%, rgba(0,0,0,1) 88%)',
+      }}
+    />
+  );
+
   if (authView === 'signin') {
     return (
+      <>
+      {dots}
       <SignIn
         onBack={() => {
           setAuthView(null);
@@ -183,34 +202,25 @@ export default function App() {
           setAuthView(null);
         }}
       />
+      </>
     );
   }
   if (authView === 'signup') {
     return (
+      <>
+      {dots}
       <SignUp
         onBack={() => setAuthView(null)}
         onSwitchToSignIn={() => setAuthView('signin')}
         onRegisterSuccess={() => setAuthView('signin')}
       />
+      </>
     );
   }
 
   return (
     <>
-      {/* Polka-dot accents fade toward the center to keep the content area calm. */}
-      <div
-        aria-hidden="true"
-        style={{
-          position: 'fixed',
-          inset: 0,
-          zIndex: 0,
-          pointerEvents: 'none',
-          backgroundImage: dotSvg,
-          backgroundSize: '96px 96px',
-          WebkitMaskImage: 'radial-gradient(72% 68% at 50% 50%, transparent 10%, rgba(0,0,0,0.2) 35%, rgba(0,0,0,0.55) 60%, rgba(0,0,0,1) 88%)',
-          maskImage: 'radial-gradient(72% 68% at 50% 50%, transparent 10%, rgba(0,0,0,0.2) 35%, rgba(0,0,0,0.55) 60%, rgba(0,0,0,1) 88%)',
-        }}
-      />
+      {dots}
 
       {/* ─── Main App Content ─── */}
       <div className="min-h-screen text-[#191919] flex flex-col antialiased selection:bg-[#7A2117] selection:text-white" style={{ position: 'relative', zIndex: 1 }}>

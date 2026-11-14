@@ -27,27 +27,27 @@ export default function SignIn({ onBack, onSwitchToSignUp, onLoginSuccess }: Sig
   };
 
   return (
-    <div className="min-h-screen bg-[#FDFBF7] flex flex-col justify-between font-sans text-neutral-800">
+    <div className="min-h-screen relative z-[1] flex flex-col justify-between text-[#191919]">
       {/* Header Sederhana */}
-      <header className="p-6 md:px-12 flex justify-between items-center">
-        <h1 className="text-2xl font-serif tracking-wide italic font-bold">OOTD Lab.</h1>
-        <button type="button" onClick={onBack} className="text-sm font-medium text-neutral-600 hover:text-neutral-900 transition-colors">
+      <header className="max-w-7xl w-full mx-auto h-20 px-4 sm:px-6 lg:px-8 flex justify-between items-center border-b border-[#C8D9A5]">
+        <h1 className="font-brand text-3xl sm:text-4xl font-semibold italic tracking-tight">OOTD Lab.</h1>
+        <button type="button" onClick={onBack} className="rounded-full px-4 py-2 text-xs font-medium text-[#96948B] hover:bg-[#F2F7E8] hover:text-[#191919] transition-colors cursor-pointer">
           Kembali ke Beranda
         </button>
       </header>
 
       {/* Konten Utama Form Login */}
       <main className="flex-grow flex items-center justify-center px-4 sm:px-6 lg:px-8">
-        <div className="max-w-md w-full bg-white p-8 md:p-10 rounded-2xl shadow-sm border border-[#EBE7DF]">
+        <div className="max-w-md w-full bg-white p-8 md:p-10 rounded-2xl border border-[#C8D9A5]">
 
           <div className="text-center mb-8">
-            <h2 className="text-3xl font-serif font-medium tracking-tight text-neutral-900">Selamat Datang Kembali</h2>
-            <p className="text-sm text-neutral-500 mt-2">Masuk untuk mengelola koleksi lemari dan AI try-on Anda.</p>
+            <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight text-[#191919]">Selamat Datang Kembali</h2>
+            <p className="text-sm text-[#96948B] mt-2">Masuk untuk mengelola koleksi lemari dan AI try-on Anda.</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-600 mb-2">
+              <label className="block text-xs font-medium text-[#191919] mb-2">
                 Email
               </label>
               <input
@@ -56,16 +56,16 @@ export default function SignIn({ onBack, onSwitchToSignUp, onLoginSuccess }: Sig
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="nama@email.com"
-                className="w-full px-4 py-3 bg-[#FDFBF7] border border-neutral-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#1B4D3E] focus:border-transparent transition-all"
+                className="w-full px-4 py-3 bg-white border border-[#C8D9A5] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#7A2117]/20 focus:border-[#7A2117] placeholder:text-[#96948B] transition-all"
               />
             </div>
 
             <div>
               <div className="flex justify-between items-center mb-2">
-                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-600">
+                <label className="block text-xs font-medium text-[#191919]">
                   Kata Sandi
                 </label>
-                <a href="#forgot" className="text-xs text-[#1B4D3E] hover:underline">
+                <a href="#forgot" className="text-xs text-[#7A2117] hover:underline">
                   Lupa sandi?
                 </a>
               </div>
@@ -75,13 +75,13 @@ export default function SignIn({ onBack, onSwitchToSignUp, onLoginSuccess }: Sig
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
-                className="w-full px-4 py-3 bg-[#FDFBF7] border border-neutral-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#1B4D3E] focus:border-transparent transition-all"
+                className="w-full px-4 py-3 bg-white border border-[#C8D9A5] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#7A2117]/20 focus:border-[#7A2117] placeholder:text-[#96948B] transition-all"
               />
             </div>
 
             <button
               type="submit"
-              className="w-full py-3.5 bg-[#1B4D3E] text-white rounded-xl font-medium text-sm hover:bg-[#143A2E] shadow-sm transition-all"
+              className="w-full py-3.5 bg-[#7A2117] text-white rounded-full font-medium text-sm hover:bg-[#64190F] cursor-pointer transition-all"
             >
               Masuk
             </button>
@@ -90,17 +90,17 @@ export default function SignIn({ onBack, onSwitchToSignUp, onLoginSuccess }: Sig
           {/* Garis Pembatas */}
           <div className="relative my-6">
             <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-neutral-200"></div>
+              <div className="w-full border-t border-[#C8D9A5]"></div>
             </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-white px-3 text-neutral-400 font-medium">Atau lanjutkan dengan</span>
+            <div className="relative flex justify-center text-xs">
+              <span className="bg-white px-3 text-[#96948B] font-medium">Atau lanjutkan dengan</span>
             </div>
           </div>
 
           {/* Tombol OAuth Google (Opsional) */}
           <button
             type="button"
-            className="w-full py-3 px-4 border border-neutral-200 rounded-xl text-sm font-medium text-neutral-700 bg-white hover:bg-neutral-50 flex items-center justify-center gap-3 transition-all"
+            className="w-full py-3 px-4 border border-[#C8D9A5] rounded-full text-sm font-medium text-[#191919] bg-white hover:bg-[#F2F7E8] cursor-pointer flex items-center justify-center gap-3 transition-all"
           >
             <svg className="w-4 h-4" viewBox="0 0 24 24">
               <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -111,9 +111,9 @@ export default function SignIn({ onBack, onSwitchToSignUp, onLoginSuccess }: Sig
             Google
           </button>
 
-          <p className="text-center text-sm text-neutral-500 mt-6">
+          <p className="text-center text-sm text-[#96948B] mt-6">
             Belum punya akun?{' '}
-            <button type="button" onClick={onSwitchToSignUp} className="text-[#1B4D3E] font-semibold hover:underline">
+            <button type="button" onClick={onSwitchToSignUp} className="text-[#7A2117] font-semibold hover:underline cursor-pointer">
               Daftar sekarang
             </button>
           </p>
@@ -122,7 +122,7 @@ export default function SignIn({ onBack, onSwitchToSignUp, onLoginSuccess }: Sig
       </main>
 
       {/* Footer */}
-      <footer className="p-6 text-center text-xs text-neutral-400">
+      <footer className="p-6 text-center text-xs text-[#96948B]">
         &copy; 2026 OOTD Lab. All rights reserved.
       </footer>
     </div>
