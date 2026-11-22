@@ -22,7 +22,7 @@ import { WearAnalytics } from './components/WearAnalytics';
 import { UploadModal } from './components/UploadModal';
 import SignIn from './components/auth/SignIn';
 import SignUp from './components/auth/SignUp';
-import { AuthUser, getLoggedInUser, saveLoggedInUser } from './utils/storage';
+import { AuthUser, onAuthUserChange, signOut } from './lib/auth';
 
 export default function App() {
   const [closetItems, setClosetItems] = useState<ClothingItem[]>(() => getSavedClosetItems());
@@ -32,7 +32,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'closet' | 'mixmatch' | 'tryon' | 'analytics'>('closet');
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [authView, setAuthView] = useState<'signin' | 'signup' | null>(null);
-  const [loggedInUser, setLoggedInUser] = useState<AuthUser | null>(() => getLoggedInUser());
+  const [loggedInUser, setLoggedInUser] = useState<AuthUser | null>(null);
 
   // Transit items for cross-tab workflows (e.g. from Closet to Try-On or Mix-Match)
   const [tryOnTop, setTryOnTop] = useState<ClothingItem | null>(null);
@@ -53,9 +53,8 @@ export default function App() {
     saveVTONHistory(vtonHistory);
   }, [vtonHistory]);
 
-  useEffect(() => {
-    saveLoggedInUser(loggedInUser);
-  }, [loggedInUser]);
+  // Supabase keeps the session in the browser; restore it and track login/logout.
+  useEffect(() => onAuthUserChange(setLoggedInUser), []);
 
   // Wear tracking count for alert badge
   const underutilizedCount = closetItems.filter(
@@ -212,7 +211,7 @@ export default function App() {
       <SignUp
         onBack={() => setAuthView(null)}
         onSwitchToSignIn={() => setAuthView('signin')}
-        onRegisterSuccess={() => setAuthView('signin')}
+        onRegisterSuccess={() => setAuthView(null)}
       />
       </>
     );
@@ -233,7 +232,8 @@ export default function App() {
           totalItems={closetItems.length}
           underutilizedCount={underutilizedCount}
           loggedInUser={loggedInUser}
-          onLogout={() => {
+          onLogout={async () => {
+            await signOut();
             setLoggedInUser(null);
             setAuthView('signin');
           }}

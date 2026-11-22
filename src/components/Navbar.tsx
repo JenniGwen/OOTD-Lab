@@ -1,5 +1,5 @@
 import React from 'react';
-import { AuthUser } from '../utils/storage';
+import type { AuthUser } from '../lib/auth';
 
 interface NavbarProps {
   activeTab: 'closet' | 'mixmatch' | 'tryon' | 'analytics';
