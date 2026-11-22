@@ -47,6 +47,20 @@ export async function signIn(email: string, password: string): Promise<AuthUser>
   return toAuthUser(data.user);
 }
 
+/** Redirects the browser to Google; Supabase sends the user back to this site signed in. */
+export async function signInWithGoogle(): Promise<void> {
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo: window.location.origin },
+  });
+  if (error) {
+    if (error.message.toLowerCase().includes('provider is not enabled')) {
+      throw new Error('Login Google belum diaktifkan di Supabase.');
+    }
+    throw new Error(translateError(error));
+  }
+}
+
 export async function signOut(): Promise<void> {
   await supabase.auth.signOut();
 }

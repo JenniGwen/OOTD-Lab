@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AuthUser, signIn } from '../../lib/auth';
+import { AuthUser, signIn, signInWithGoogle } from '../../lib/auth';
 
 interface SignInProps {
   onBack: () => void;
@@ -24,6 +24,15 @@ export default function SignIn({ onBack, onSwitchToSignUp, onLoginSuccess }: Sig
       setError(err instanceof Error ? err.message : 'Login gagal.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleGoogle = async () => {
+    setError(null);
+    try {
+      await signInWithGoogle();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Login Google gagal.');
     }
   };
 
@@ -107,6 +116,7 @@ export default function SignIn({ onBack, onSwitchToSignUp, onLoginSuccess }: Sig
           {/* Tombol OAuth Google (Opsional) */}
           <button
             type="button"
+            onClick={handleGoogle}
             className="w-full py-3 px-4 border border-[#C8D9A5] rounded-full text-sm font-medium text-[#191919] bg-white hover:bg-[#F2F7E8] cursor-pointer flex items-center justify-center gap-3 transition-all"
           >
             <svg className="w-4 h-4" viewBox="0 0 24 24">
