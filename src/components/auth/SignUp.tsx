@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { registerUser } from '../../utils/storage';
+import { signUp } from '../../lib/auth';
 
 interface SignUpProps {
   onBack: () => void;
@@ -12,30 +12,38 @@ export default function SignUp({ onBack, onSwitchToSignIn, onRegisterSuccess }: 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [confirmSentTo, setConfirmSentTo] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
 
     if (password.length < 6) {
-      alert('Kata sandi minimal 6 karakter.');
+      setError('Kata sandi minimal 6 karakter.');
       return;
     }
 
     if (password !== confirmPassword) {
-      alert('Kata sandi tidak cocok!');
+      setError('Kata sandi tidak cocok!');
       return;
     }
 
+    setLoading(true);
     try {
-      registerUser({ name, email, password });
-      alert('Akun berhasil dibuat. Silakan masuk dengan email dan kata sandi yang baru Anda daftarkan.');
-      setName('');
-      setEmail('');
-      setPassword('');
-      setConfirmPassword('');
+      const { needsConfirmation } = await signUp({ name, email, password });
+      if (needsConfirmation) {
+        setConfirmSentTo(email.trim());
+        return;
+      }
+      // Email confirmation is off: Supabase already signed the user in,
+      // and App picks that up via onAuthUserChange.
       onRegisterSuccess();
-    } catch (error) {
-      alert(error instanceof Error ? error.message : 'Registrasi gagal.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Registrasi gagal.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -58,7 +66,27 @@ export default function SignUp({ onBack, onSwitchToSignIn, onRegisterSuccess }: 
             <p className="text-sm text-[#96948B] mt-2">Mulai simpan lemari virtual dan nikmati AI try-on.</p>
           </div>
 
+          {confirmSentTo ? (
+            <div className="space-y-4 text-center">
+              <p className="text-sm text-[#191919]">
+                Kami sudah mengirim link konfirmasi ke <strong>{confirmSentTo}</strong>. Buka email tersebut, klik
+                link-nya, lalu masuk dengan akun Anda.
+              </p>
+              <button
+                type="button"
+                onClick={onSwitchToSignIn}
+                className="w-full py-3.5 bg-[#7A2117] text-white rounded-full font-medium text-sm hover:bg-[#64190F] cursor-pointer transition-all"
+              >
+                Ke Halaman Masuk
+              </button>
+            </div>
+          ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
+            {error && (
+              <p role="alert" className="rounded-xl border border-[#7A2117]/30 bg-[#7A2117]/5 px-4 py-3 text-sm text-[#7A2117]">
+                {error}
+              </p>
+            )}
             <div>
               <label className="block text-xs font-medium text-[#191919] mb-2">
                 Nama Lengkap
@@ -117,11 +145,13 @@ export default function SignUp({ onBack, onSwitchToSignIn, onRegisterSuccess }: 
 
             <button
               type="submit"
-              className="w-full py-3.5 bg-[#7A2117] text-white rounded-full font-medium text-sm hover:bg-[#64190F] cursor-pointer transition-all mt-2"
+              disabled={loading}
+              className="w-full py-3.5 bg-[#7A2117] text-white rounded-full font-medium text-sm hover:bg-[#64190F] cursor-pointer transition-all mt-2 disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              Daftar Sekarang
+              {loading ? 'Memproses…' : 'Daftar Sekarang'}
             </button>
           </form>
+          )}
 
           {/* Garis Pembatas */}
           <div className="relative my-6">

@@ -1,29 +1,30 @@
 import React, { useState } from 'react';
-import { loginUser } from '../../utils/storage';
+import { AuthUser, signIn } from '../../lib/auth';
 
 interface SignInProps {
   onBack: () => void;
   onSwitchToSignUp: () => void;
-  onLoginSuccess: (user: { id: string; name: string; email: string; password: string; createdAt: string }) => void;
+  onLoginSuccess: (user: AuthUser) => void;
 }
 
 export default function SignIn({ onBack, onSwitchToSignUp, onLoginSuccess }: SignInProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    const trimmedEmail = email.trim();
-    const user = loginUser(trimmedEmail, password);
-
-    if (!user) {
-      alert('Email atau kata sandi salah. Silakan cek akun yang sudah terdaftar.');
-      return;
+    setError(null);
+    setLoading(true);
+    try {
+      const user = await signIn(email, password);
+      onLoginSuccess(user);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Login gagal.');
+    } finally {
+      setLoading(false);
     }
-
-    alert(`Login berhasil! Selamat datang, ${user.name}.`);
-    onLoginSuccess(user);
   };
 
   return (
@@ -46,6 +47,11 @@ export default function SignIn({ onBack, onSwitchToSignUp, onLoginSuccess }: Sig
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-5">
+            {error && (
+              <p role="alert" className="rounded-xl border border-[#7A2117]/30 bg-[#7A2117]/5 px-4 py-3 text-sm text-[#7A2117]">
+                {error}
+              </p>
+            )}
             <div>
               <label className="block text-xs font-medium text-[#191919] mb-2">
                 Email
@@ -81,9 +87,10 @@ export default function SignIn({ onBack, onSwitchToSignUp, onLoginSuccess }: Sig
 
             <button
               type="submit"
-              className="w-full py-3.5 bg-[#7A2117] text-white rounded-full font-medium text-sm hover:bg-[#64190F] cursor-pointer transition-all"
+              disabled={loading}
+              className="w-full py-3.5 bg-[#7A2117] text-white rounded-full font-medium text-sm hover:bg-[#64190F] cursor-pointer transition-all disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              Masuk
+              {loading ? 'Memproses…' : 'Masuk'}
             </button>
           </form>
 
