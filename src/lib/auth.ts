@@ -1,5 +1,13 @@
 import type { AuthError, User } from '@supabase/supabase-js';
-import { supabase } from './supabase';
+import { supabase, supabaseConfigured } from './supabase';
+
+function assertConfigured() {
+  if (!supabaseConfigured) {
+    throw new Error(
+      'Login belum dikonfigurasi: VITE_SUPABASE_URL / VITE_SUPABASE_PUBLISHABLE_KEY tidak ditemukan saat build.',
+    );
+  }
+}
 
 export interface AuthUser {
   id: string;
@@ -28,6 +36,7 @@ function translateError(error: AuthError): string {
 
 /** Returns the new user and whether they must confirm their email before logging in. */
 export async function signUp(payload: { name: string; email: string; password: string }) {
+  assertConfigured();
   const { data, error } = await supabase.auth.signUp({
     email: payload.email.trim(),
     password: payload.password,
@@ -42,6 +51,7 @@ export async function signUp(payload: { name: string; email: string; password: s
 }
 
 export async function signIn(email: string, password: string): Promise<AuthUser> {
+  assertConfigured();
   const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
   if (error) throw new Error(translateError(error));
   return toAuthUser(data.user);
@@ -49,6 +59,7 @@ export async function signIn(email: string, password: string): Promise<AuthUser>
 
 /** Redirects the browser to Google; Supabase sends the user back to this site signed in. */
 export async function signInWithGoogle(): Promise<void> {
+  assertConfigured();
   const { error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: { redirectTo: window.location.origin },
