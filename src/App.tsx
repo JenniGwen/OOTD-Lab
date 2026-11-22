@@ -20,6 +20,9 @@ import { MixMatchGenerator } from './components/MixMatchGenerator';
 import { VirtualTryOn } from './components/VirtualTryOn';
 import { WearAnalytics } from './components/WearAnalytics';
 import { UploadModal } from './components/UploadModal';
+import SignIn from './components/auth/SignIn';
+import SignUp from './components/auth/SignUp';
+import { AuthUser, getLoggedInUser, saveLoggedInUser } from './utils/storage';
 
 export default function App() {
   const [closetItems, setClosetItems] = useState<ClothingItem[]>(() => getSavedClosetItems());
@@ -28,6 +31,8 @@ export default function App() {
 
   const [activeTab, setActiveTab] = useState<'closet' | 'mixmatch' | 'tryon' | 'analytics'>('closet');
   const [isUploadOpen, setIsUploadOpen] = useState(false);
+  const [authView, setAuthView] = useState<'signin' | 'signup' | null>(null);
+  const [loggedInUser, setLoggedInUser] = useState<AuthUser | null>(() => getLoggedInUser());
 
   // Transit items for cross-tab workflows (e.g. from Closet to Try-On or Mix-Match)
   const [tryOnTop, setTryOnTop] = useState<ClothingItem | null>(null);
@@ -47,6 +52,10 @@ export default function App() {
   useEffect(() => {
     saveVTONHistory(vtonHistory);
   }, [vtonHistory]);
+
+  useEffect(() => {
+    saveLoggedInUser(loggedInUser);
+  }, [loggedInUser]);
 
   // Wear tracking count for alert badge
   const underutilizedCount = closetItems.filter(
@@ -162,22 +171,56 @@ export default function App() {
   // Sparse vermilion and sage polka dots keep the white canvas lively without crowding content.
   const dotSvg = `url("data:image/svg+xml,%3Csvg width='96' height='96' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='14' cy='20' r='7' fill='%23e34b3f' fill-opacity='0.14'/%3E%3Ccircle cx='58' cy='69' r='4' fill='%23e34b3f' fill-opacity='0.16'/%3E%3Ccircle cx='82' cy='28' r='1.5' fill='%23a8bf8f' fill-opacity='0.42'/%3E%3Ccircle cx='39' cy='49' r='1' fill='%23e34b3f' fill-opacity='0.28'/%3E%3Ccircle cx='74' cy='89' r='1.2' fill='%23a8bf8f' fill-opacity='0.35'/%3E%3C/svg%3E")`;
 
-  return (
-    <>
-      {/* Polka-dot accents fade toward the center to keep the content area calm. */}
-      <div
-        aria-hidden="true"
-        style={{
-          position: 'fixed',
-          inset: 0,
-          zIndex: 0,
-          pointerEvents: 'none',
-          backgroundImage: dotSvg,
-          backgroundSize: '96px 96px',
-          WebkitMaskImage: 'radial-gradient(72% 68% at 50% 50%, transparent 10%, rgba(0,0,0,0.2) 35%, rgba(0,0,0,0.55) 60%, rgba(0,0,0,1) 88%)',
-          maskImage: 'radial-gradient(72% 68% at 50% 50%, transparent 10%, rgba(0,0,0,0.2) 35%, rgba(0,0,0,0.55) 60%, rgba(0,0,0,1) 88%)',
+  // Polka-dot accents fade toward the center to keep the content area calm.
+  const dots = (
+    <div
+      aria-hidden="true"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 0,
+        pointerEvents: 'none',
+        backgroundImage: dotSvg,
+        backgroundSize: '96px 96px',
+        WebkitMaskImage: 'radial-gradient(72% 68% at 50% 50%, transparent 10%, rgba(0,0,0,0.2) 35%, rgba(0,0,0,0.55) 60%, rgba(0,0,0,1) 88%)',
+        maskImage: 'radial-gradient(72% 68% at 50% 50%, transparent 10%, rgba(0,0,0,0.2) 35%, rgba(0,0,0,0.55) 60%, rgba(0,0,0,1) 88%)',
+      }}
+    />
+  );
+
+  if (authView === 'signin') {
+    return (
+      <>
+      {dots}
+      <SignIn
+        onBack={() => {
+          setAuthView(null);
+        }}
+        onSwitchToSignUp={() => setAuthView('signup')}
+        onLoginSuccess={(user) => {
+          setLoggedInUser(user);
+          setAuthView(null);
         }}
       />
+      </>
+    );
+  }
+  if (authView === 'signup') {
+    return (
+      <>
+      {dots}
+      <SignUp
+        onBack={() => setAuthView(null)}
+        onSwitchToSignIn={() => setAuthView('signin')}
+        onRegisterSuccess={() => setAuthView('signin')}
+      />
+      </>
+    );
+  }
+
+  return (
+    <>
+      {dots}
 
       {/* ─── Main App Content ─── */}
       <div className="min-h-screen text-[#191919] flex flex-col antialiased selection:bg-[#7A2117] selection:text-white" style={{ position: 'relative', zIndex: 1 }}>
@@ -186,8 +229,14 @@ export default function App() {
           activeTab={activeTab}
           onSelectTab={setActiveTab}
           onOpenUpload={() => setIsUploadOpen(true)}
+          onOpenAuth={() => setAuthView('signin')}
           totalItems={closetItems.length}
           underutilizedCount={underutilizedCount}
+          loggedInUser={loggedInUser}
+          onLogout={() => {
+            setLoggedInUser(null);
+            setAuthView('signin');
+          }}
         />
 
         {/* Main Viewport Container */}

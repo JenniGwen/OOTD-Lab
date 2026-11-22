@@ -347,7 +347,7 @@ export const VirtualCloset: React.FC<VirtualClosetProps> = ({
                       </span>
                     </div>
                     <div className="flex items-center justify-between pt-1">
-                      <span className="label">Last Logged:</span>
+                      <span className="label">Last worn:</span>
                       <span className="label text-[#191919]">{formatRelativeDate(selectedItemForDetail.lastWornDate)}</span>
                     </div>
                   </div>
@@ -372,8 +372,8 @@ export const VirtualCloset: React.FC<VirtualClosetProps> = ({
                   }`}
                 >
                   {recentlyLoggedId === selectedItemForDetail.id
-                    ? '✓ Logged'
-                    : '+ Log Wear Today'}
+                    ? '✓ Added to wear history'
+                    : '+ I wore this today'}
                 </button>
 
                 {/* Studio Transitions */}

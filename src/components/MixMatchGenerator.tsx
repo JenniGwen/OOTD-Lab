@@ -1156,7 +1156,7 @@ export const MixMatchGenerator: React.FC<MixMatchGeneratorProps> = ({
                 ) : (
                   <>
                     <Check className="w-3.5 h-3.5" />
-                    <span>Simpan Outfit Manekin</span>
+                    <span>Simpan Outfit</span>
                   </>
                 )}
               </button>
@@ -1169,12 +1169,12 @@ export const MixMatchGenerator: React.FC<MixMatchGeneratorProps> = ({
                 {justLogged ? (
                   <>
                     <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Tercatat!</span>
+                    <span>Tercatat dipakai hari ini</span>
                   </>
                 ) : (
                   <>
                     <Calendar className="w-3.5 h-3.5" />
-                    <span>Catat Dipakai</span>
+                    <span>Saya pakai hari ini</span>
                   </>
                 )}
               </button>

@@ -4,6 +4,16 @@ import { INITIAL_CLOTHING_ITEMS } from '../data/mockCloset';
 const CLOSET_KEY = 'vestiai_closet_items_v3';
 const OUTFITS_KEY = 'vestiai_outfits_v2';
 const VTON_HISTORY_KEY = 'vestiai_vton_history_v1';
+const USERS_KEY = 'ootd_lab_users_v1';
+const LOGGED_IN_USER_KEY = 'ootd_lab_logged_in_user_v1';
+
+export interface AuthUser {
+  id: string;
+  name: string;
+  email: string;
+  password: string;
+  createdAt: string;
+}
 
 export function getSavedClosetItems(): ClothingItem[] {
   try {
@@ -107,6 +117,80 @@ export function saveVTONHistory(history: VTONResult[]): void {
   } catch (err) {
     console.warn('LocalStorage save failed:', err);
   }
+}
+
+export function getSavedUsers(): AuthUser[] {
+  try {
+    const raw = localStorage.getItem(USERS_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw) as AuthUser[];
+  } catch {
+    return [];
+  }
+}
+
+export function saveUsers(users: AuthUser[]): void {
+  try {
+    localStorage.setItem(USERS_KEY, JSON.stringify(users));
+  } catch (err) {
+    console.warn('LocalStorage save failed:', err);
+  }
+}
+
+export function saveLoggedInUser(user: AuthUser | null): void {
+  try {
+    if (!user) {
+      localStorage.removeItem(LOGGED_IN_USER_KEY);
+      return;
+    }
+    localStorage.setItem(LOGGED_IN_USER_KEY, JSON.stringify(user));
+  } catch (err) {
+    console.warn('LocalStorage save failed:', err);
+  }
+}
+
+export function getLoggedInUser(): AuthUser | null {
+  try {
+    const raw = localStorage.getItem(LOGGED_IN_USER_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as AuthUser;
+  } catch {
+    return null;
+  }
+}
+
+export function findUserByEmail(email: string): AuthUser | undefined {
+  return getSavedUsers().find((user) => user.email.toLowerCase() === email.toLowerCase());
+}
+
+export function registerUser(payload: { name: string; email: string; password: string }): AuthUser {
+  const email = payload.email.trim();
+  const name = payload.name.trim();
+
+  const existingUser = findUserByEmail(email);
+  if (existingUser) {
+    throw new Error('Email sudah terdaftar');
+  }
+
+  const newUser: AuthUser = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+    name,
+    email: email.toLowerCase(),
+    password: payload.password,
+    createdAt: new Date().toISOString(),
+  };
+
+  saveUsers([...getSavedUsers(), newUser]);
+  return newUser;
+}
+
+export function loginUser(email: string, password: string): AuthUser | null {
+  const user = findUserByEmail(email);
+  if (!user || user.password !== password) {
+    return null;
+  }
+  saveLoggedInUser(user);
+  return user;
 }
 
 // Format Rupiah currency

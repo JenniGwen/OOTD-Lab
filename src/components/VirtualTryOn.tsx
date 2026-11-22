@@ -1,8 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
-  MousePointer2, BoxSelect, Plus, Type, Star, Paintbrush, Pencil, Search, Eraser,
-  Slash, Square, RectangleHorizontal, Circle, Pentagon, ChevronLeft, ChevronRight,
-  RotateCw, Loader2, Sparkles,
+  Plus, ChevronLeft, ChevronRight, RotateCw, Loader2, Sparkles, Download,
 } from 'lucide-react';
 import { ClothingItem, VTONResult } from '../types';
 
@@ -86,11 +84,8 @@ export const VirtualTryOn: React.FC<VirtualTryOnProps> = ({
   const [accessoryPicks, setAccessoryPicks] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [stage, setStage] = useState('Next day, next color');
+  const [stage, setStage] = useState('Upload a photo and pick an outfit to start');
   const [error, setError] = useState<string | null>(null);
-  const [zoom, setZoom] = useState(false);
-  const [tips, setTips] = useState(false);
-  const [menu, setMenu] = useState<string | null>(null);
   const [body, setBody] = useState(loadBody);
   const [sizes, setSizes] = useState<Record<string, string | null>>({});
   const fileRef = useRef<HTMLInputElement>(null);
@@ -235,7 +230,7 @@ export const VirtualTryOn: React.FC<VirtualTryOnProps> = ({
   };
 
   const generate = async () => {
-    if (!personPhoto) return setError('Upload a full-body photo first (Image > Upload photo).');
+    if (!personPhoto) return setError('Upload a full-body photo first.');
     if (!modelGarments.length) return setError('Pick at least one top, bottom, or one-piece item.');
     if (bodyGiven && !bodySize) return setError('Enter both height (120-220 cm) and weight (30-200 kg), or leave both empty.');
     setError(null);
@@ -284,66 +279,37 @@ export const VirtualTryOn: React.FC<VirtualTryOnProps> = ({
     a.download = `outfit-${Date.now()}.png`;
     a.click();
   };
-  const resetAll = () => { setPersonPhoto(null); setResult(null); setStage('Next day, next color'); setProgress(0); };
-
-  const menus: Record<string, [string, () => void][]> = {
-    File: [['Save image', save], ['New', resetAll]],
-    Edit: [['Shuffle outfit', shuffle], ['Clear result', () => setResult(null)]],
-    View: [['Toggle zoom', () => setZoom((v) => !v)]],
-    Image: [['Upload photo', () => fileRef.current?.click()]],
-    Help: [['Show or hide tips', () => setTips((v) => !v)]],
-  };
-  const tools: [React.ElementType, string, (() => void)?][] = [
-    [MousePointer2, 'Select'], [BoxSelect, 'Marquee'], [Plus, 'Upload photo', () => fileRef.current?.click()], [Type, 'Text'],
-    [Star, 'Shuffle outfit', shuffle], [Paintbrush, 'Brush'], [Pencil, 'Pencil'], [Search, 'Zoom', () => setZoom((v) => !v)],
-    [Eraser, 'Clear result', () => setResult(null)], [Slash, 'Line'], [Square, 'Rectangle'], [RectangleHorizontal, 'Rounded'],
-    [Circle, 'Ellipse'], [Pentagon, 'Polygon'],
-  ];
-
   const shown = result || personPhoto;
 
   return (
-    <div className="mx-auto w-full max-w-7xl space-y-4 text-[#191919] select-none" onClick={() => setMenu(null)}>
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-3 text-[#191919] select-none lg:h-[calc(100vh-9rem)]">
       <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onUpload} />
 
-      {/* Title bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#C8D9A5] px-1 pb-4">
+      {/* Title bar + Generate */}
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-[#C8D9A5] px-1 pb-3">
         <div className="min-w-0">
-          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">Outfit of the day</h1>
-          <p className="mt-1 text-sm text-[#96948B]">Build a look and preview it on your model.</p>
+          <h1 className="text-2xl font-semibold tracking-tight">Virtual Try-On</h1>
+          <p className="mt-0.5 text-sm text-[#96948B]">Upload your photo, pick clothes from your closet, then press Generate.</p>
         </div>
-        <span className="rounded-full bg-[#F2F7E8] px-3 py-1.5 text-xs font-medium text-[#191919]">Virtual Try-On</span>
+        <div className="flex items-center gap-2">
+        {result && !busy && (
+          <button onClick={save} title="Save image" aria-label="Save image"
+            className="flex items-center gap-1.5 rounded-full border border-[#C8D9A5] bg-white px-4 py-3 text-xs font-medium text-[#191919] cursor-pointer hover:bg-[#F2F7E8]">
+            <Download className="w-4 h-4" /> Save
+          </button>
+        )}
+        <button onClick={generate} disabled={busy}
+          className="flex items-center gap-2 rounded-full px-6 py-3 text-white text-xs font-bold tracking-[0.15em] uppercase cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+          style={{ background: WINE }}>
+          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+          {busy ? 'Generating…' : 'Generate try-on'}
+        </button>
+        </div>
       </div>
 
-      {/* Menu bar */}
-      <div className="relative flex flex-wrap gap-2 border-b border-[#C8D9A5] pb-3 text-xs font-medium" onClick={(e) => e.stopPropagation()}>
-        {Object.keys(menus).map((m) => (
-          <div key={m} className="relative">
-            <button className="rounded-full px-3 py-1.5 text-[#96948B] hover:bg-[#F2F7E8] hover:text-[#191919] cursor-pointer" onClick={() => setMenu(menu === m ? null : m)}>{m}</button>
-            {menu === m && (
-              <div className={`${box} absolute left-0 top-full z-20 mt-1 min-w-[190px] overflow-hidden shadow-lg`}>
-                {menus[m].map(([label, fn]) => (
-                  <button key={label} className="block w-full rounded-none px-3 py-2.5 text-left text-xs hover:bg-[#F2F7E8] cursor-pointer"
-                    onClick={() => { fn(); setMenu(null); }}>{label}</button>
-                ))}
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-[176px_minmax(0,1fr)] gap-4 lg:gap-5 items-start">
-        {/* Left: toolbox + person photo */}
-        <div className="min-w-0 space-y-4">
-          <div className={`${box} grid grid-cols-4 gap-1 p-2`}>
-            {tools.map(([Icon, label, fn], i) => (
-              <button key={i} type="button" title={label} aria-label={label} onClick={fn}
-                className={`aspect-square w-full flex items-center justify-center border border-[#C8D9A5] text-[#191919] transition-colors ${fn ? 'hover:bg-[#F2F7E8] cursor-pointer' : 'cursor-default'}`}>
-                <Icon className="w-5 h-5" strokeWidth={1.75} />
-              </button>
-            ))}
-          </div>
-
+      <div className="grid grid-cols-1 lg:min-h-0 lg:flex-1 lg:grid-cols-[176px_minmax(0,1fr)] gap-4 items-start lg:items-stretch">
+        {/* Left: person photo + body + background */}
+        <div className="min-w-0 space-y-3 lg:overflow-y-auto">
           <div className={`${box} min-w-0 bg-[#F2F7E8] p-3 space-y-3 text-xs font-medium`}>
             <button onClick={() => fileRef.current?.click()} className="w-full min-w-0 rounded-full border border-[#C8D9A5] bg-white px-3 py-2 text-xs text-[#191919] cursor-pointer hover:bg-[#F8F6EC]">
               {personPhoto ? 'Change photo' : 'Upload photo'}
@@ -369,24 +335,34 @@ export const VirtualTryOn: React.FC<VirtualTryOnProps> = ({
                 : 'Leave empty to fit clothes to your photo.'}
             </p>
           </div>
+
+          <div className={`${box} min-w-0 p-3 space-y-2 text-xs font-medium`}>
+            <p className="text-[11px] font-semibold">Preview background</p>
+            <div className="grid grid-cols-6 gap-1.5">
+              {PALETTE.map((p) => (
+                <button key={p.hex + p.name} aria-label={p.name} title={p.name} onClick={() => setBg(p)}
+                  className={`aspect-square w-full rounded-md border cursor-pointer ${bg.name === p.name ? 'border-[#7A2117] ring-2 ring-offset-1 ring-[#7A2117]' : 'border-[#C8D9A5]'}`} style={{ background: p.hex }} />
+              ))}
+            </div>
+            <p className="text-[10px] leading-relaxed text-[#96948B]">Only changes the preview, not the result.</p>
+          </div>
         </div>
 
         {/* Canvas window */}
-        <div className="flex-1 min-w-0">
-          <div className={`${box} min-w-0 overflow-hidden`}>
+        <div className="flex min-h-0 min-w-0 flex-col gap-3 lg:flex-row">
+          <div className={`${box} flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden`}>
             <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
               <p className="min-w-0 break-words text-sm font-medium">{error ? <span className="text-[#7A2117]">{error}</span> : stage}</p>
               <span className="shrink-0 rounded-full bg-[#F2F7E8] px-3 py-1 text-[11px] text-[#191919]">{progress}%</span>
             </div>
-            <div className="grid min-w-0 grid-cols-1 xl:grid-cols-[minmax(0,1fr)_280px] gap-3 p-3 pt-0">
+            <div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_260px] xl:grid-cols-[minmax(0,1fr)_300px] gap-3 p-3 pt-0">
               {/* Model */}
-              <div className="relative flex min-w-0 aspect-[3/4] sm:aspect-[4/3] sm:min-h-[420px] xl:min-h-[500px] max-h-[680px] items-center justify-center overflow-hidden rounded-xl border border-[#C8D9A5]" style={{ background: bg.hex }}>
+              <div className="relative flex min-w-0 aspect-[3/4] lg:aspect-auto lg:h-full lg:min-h-0 items-center justify-center overflow-hidden rounded-xl border border-[#C8D9A5]" style={{ background: bg.hex }}>
                 {shown || sideItems.length > 0 ? (
                   <div className={`flex h-full min-h-0 w-full items-center justify-center ${sideItems.length ? 'gap-2 p-2' : ''}`}>
-                    <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden">
+                    <div className="relative flex h-full min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden">
                       {shown ? (
-                        <img src={shown} alt="Full-body try-on preview" className="max-h-[560px] max-w-full object-contain transition-transform duration-300"
-                          style={{ transform: zoom ? 'scale(1.35)' : 'none' }} />
+                        <img src={shown} alt="Full-body try-on preview" className="absolute inset-0 h-full w-full object-contain" />
                       ) : (
                         <p className="px-4 text-center text-xs leading-relaxed text-[#96948B]">Upload a full-body photo to preview your outfit.</p>
                       )}
@@ -416,7 +392,7 @@ export const VirtualTryOn: React.FC<VirtualTryOnProps> = ({
               </div>
 
               {/* Outfit picker */}
-              <div className="min-w-0 xl:max-h-[680px] xl:overflow-y-auto">
+              <div className="min-w-0 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
                 <div className="flex items-center justify-between gap-2 mb-3">
                   <span className="min-w-0 truncate text-sm font-semibold">Outfit pieces</span>
                   <button onClick={shuffle} title="Shuffle outfit" aria-label="Shuffle outfit" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#7A2117] text-white cursor-pointer hover:bg-[#64190F]">
@@ -500,9 +476,6 @@ export const VirtualTryOn: React.FC<VirtualTryOnProps> = ({
                     </div>
                   )}
                 </div>
-                {tips && (
-                  <p className="mt-3 break-words text-[11px] leading-relaxed text-[#96948B]">Use the arrows on each tile to browse your closet. Pick the empty slot to leave a category out. Tops, bottoms, and one-pieces are tried on; outerwear, shoes, and accessories appear beside the model. Pick a size under a piece to try it looser or tighter; with no size it is fitted to your body.</p>
-                )}
               </div>
             </div>
 
@@ -513,9 +486,9 @@ export const VirtualTryOn: React.FC<VirtualTryOnProps> = ({
 
           {/* History */}
           {history.length > 0 && (
-            <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+            <div className="flex shrink-0 gap-2 overflow-x-auto pb-1 lg:min-h-0 lg:flex-col lg:overflow-x-hidden lg:overflow-y-auto lg:pb-0 lg:pr-1" aria-label="Previous try-ons">
               {history.map((h) => (
-                <button key={h.id} onClick={() => setResult(h.renderedTryOnUrl)} title={h.garment?.name}
+                <button key={h.id} onClick={() => { setResult(h.renderedTryOnUrl); setError(null); setStage('Previous try-on'); }} title={h.garment?.name}
                   className="shrink-0 w-14 h-[74px] border-2 border-[#C8D9A5] bg-white cursor-pointer overflow-hidden">
                   <img src={h.renderedTryOnUrl} alt="" className="w-full h-full object-cover" />
                 </button>
@@ -525,26 +498,6 @@ export const VirtualTryOn: React.FC<VirtualTryOnProps> = ({
         </div>
       </div>
 
-      {/* Bottom: colors + generate */}
-      <div className="mt-4 flex flex-wrap items-center gap-4">
-        <div className={`${box} relative w-[88px] h-[88px] shrink-0`}>
-          <div className="absolute left-2.5 top-2.5 w-9 h-9 border-2 border-[#C8D9A5] bg-white" />
-          <div className="absolute left-8 top-8 w-11 h-11 border-2 border-[#C8D9A5]" style={{ background: bg.hex }} />
-        </div>
-        <div className="grid grid-cols-6 gap-1.5" title="Preview background color only">
-          {PALETTE.map((p) => (
-            <button key={p.hex + p.name} aria-label={p.name} onClick={() => setBg(p)}
-              className={`w-9 h-9 border-2 cursor-pointer ${bg.name === p.name ? 'border-[#C8D9A5] ring-2 ring-offset-1 ring-[#7A2117]' : 'border-[#C8D9A5]'}`} style={{ background: p.hex }} />
-          ))}
-        </div>
-        <span className="text-[10px] text-[#96948B]">Preview background only</span>
-        <button onClick={generate} disabled={busy}
-          className="ml-auto flex items-center gap-2 rounded-full px-6 py-3 text-white text-xs italic font-bold tracking-[0.2em] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-          style={{ background: WINE }}>
-          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-          {busy ? 'Generating' : 'Generate'}
-        </button>
-      </div>
     </div>
   );
 };

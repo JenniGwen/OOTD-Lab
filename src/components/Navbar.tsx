@@ -1,19 +1,26 @@
 import React from 'react';
+import { AuthUser } from '../utils/storage';
 
 interface NavbarProps {
   activeTab: 'closet' | 'mixmatch' | 'tryon' | 'analytics';
   onSelectTab: (tab: 'closet' | 'mixmatch' | 'tryon' | 'analytics') => void;
   onOpenUpload: () => void;
+  onOpenAuth: () => void;
   totalItems: number;
   underutilizedCount: number;
+  loggedInUser: AuthUser | null;
+  onLogout: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
   activeTab,
   onSelectTab,
   onOpenUpload,
+  onOpenAuth,
   totalItems,
   underutilizedCount,
+  loggedInUser,
+  onLogout,
 }) => {
   return (
     <header className="sticky top-0 z-40 bg-[rgba(249,248,245,0.88)] backdrop-blur-md border-b border-[#C8D9A5] transition-all">
@@ -86,6 +93,32 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* Action Button - Space Mono Editorial Upload Button */}
           <div className="flex items-center gap-3">
+            {loggedInUser ? (
+              <div className="flex items-center gap-3">
+                <div className="hidden sm:flex items-center gap-2 rounded-full border border-[#C8D9A5] bg-[#F4F7EE] px-3 py-1.5 text-xs font-medium text-[#1B4D3E]">
+                  <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-[#1B4D3E] text-[10px] font-bold text-white uppercase">
+                    {loggedInUser.name.charAt(0)}
+                  </span>
+                  <span>{loggedInUser.name}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={onLogout}
+                  className="text-[10px] uppercase tracking-[0.14em] font-medium text-[#7A2117] hover:text-[#5a1712] transition-colors"
+                >
+                  Keluar
+                </button>
+              </div>
+            ) : (
+              <button
+                id="btn-open-signin"
+                type="button"
+                onClick={onOpenAuth}
+                className="text-xs uppercase tracking-[0.14em] font-medium text-[#191919] hover:text-[#7A2117] transition-colors"
+              >
+                Masuk
+              </button>
+            )}
             <button
               id="btn-open-upload"
               onClick={onOpenUpload}
