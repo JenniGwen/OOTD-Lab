@@ -8,6 +8,8 @@ Serves, from one CPU container:
     POST /classify                     classify one garment image
     /ui                                Gradio UI
 """
+# ghost commit
+
 import modal
 
 import config
