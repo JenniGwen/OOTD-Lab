@@ -51,9 +51,11 @@ ENGINE_BY_CATEGORY = {
     "aksesoris": "qwen",
     "unknown": "qwen",  # runs last, with a generic prompt
 }
-# Leffa turns a skirt into trousers when the person in the photo wears trousers, so
-# skirts go to Qwen as well.
-QWEN_BAWAHAN_SUBTYPES = r"\b(skirt|rok)\b"
+# Leffa can only paint the new garment inside the mask, and the mask always covers the
+# trousers the person already wears. So a skirt turns into trousers, and shorts put on
+# someone in long trousers come out full length (it cannot paint bare legs). Both go to
+# Qwen, whose bawahan prompt shows bare legs below the hem.
+QWEN_BAWAHAN_SUBTYPES = r"\b(skirt|rok|shorts?|pendek|jorts|hot ?pants|mini)\b"
 
 
 def engine_for(category: str, subtype: str = "", fit: int = 0) -> str:

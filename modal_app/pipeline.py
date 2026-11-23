@@ -285,6 +285,10 @@ def _execute(job: dict, start_step: int = 1) -> dict:
     job["status"] = "running"
     job["error"] = None
     current = _input_for_step(job, start_step)
+    # Garment colors are checked against this image, not just the previous step, so
+    # small shifts from several Qwen steps in a row (shoes, then a bag, ...) cannot add up.
+    # It moves forward only after a step that was allowed to change garments.
+    anchor = current
     failed = False
     for step in job["steps"][start_step - 1:]:
         if step["status"] == "skipped":
@@ -320,7 +324,7 @@ def _execute(job: dict, start_step: int = 1) -> dict:
         if step["engine"] == "qwen" and skip is not None:
             # Qwen repaints everything: put back any garment whose color it changed.
             try:
-                locked = GarmentLock().restore.remote(current, out["image"], skip)
+                locked = GarmentLock().restore.remote(anchor, out["image"], skip)
                 out["image"] = locked["image"]
                 if locked["restored"]:
                     job["warnings"].append(
@@ -338,6 +342,8 @@ def _execute(job: dict, start_step: int = 1) -> dict:
                     cost_usd=round((gpu_seconds + cold_start) * spec["rate"], 6))
         job["total_cost_usd"] += step["cost_usd"]
         current = out["image"]
+        if step["engine"] == "leffa" or skip != []:
+            anchor = current
         save_job(job, persist=True)  # commit the image before moving on
 
     if not failed:
