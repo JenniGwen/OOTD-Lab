@@ -488,7 +488,12 @@ export const VirtualTryOn: React.FC<VirtualTryOnProps> = ({
           {history.length > 0 && (
             <div className="flex shrink-0 gap-2 overflow-x-auto pb-1 lg:min-h-0 lg:flex-col lg:overflow-x-hidden lg:overflow-y-auto lg:pb-0 lg:pr-1" aria-label="Previous try-ons">
               {history.map((h) => (
-                <button key={h.id} onClick={() => { setResult(h.renderedTryOnUrl); setError(null); setStage('Previous try-on'); }} title={h.garment?.name}
+                <button key={h.id} onClick={() => {
+                  setResult(h.renderedTryOnUrl);
+                  if (h.userPhoto) setPersonPhoto(h.userPhoto);
+                  setError(null);
+                  setStage('Previous try-on');
+                }} title={h.garment?.name}
                   className="shrink-0 w-14 h-[74px] border-2 border-[#C8D9A5] bg-white cursor-pointer overflow-hidden">
                   <img src={h.renderedTryOnUrl} alt="" className="w-full h-full object-cover" />
                 </button>
