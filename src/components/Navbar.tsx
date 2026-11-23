@@ -6,6 +6,7 @@ interface NavbarProps {
   onSelectTab: (tab: 'closet' | 'mixmatch' | 'tryon' | 'analytics') => void;
   onOpenUpload: () => void;
   onOpenAuth: () => void;
+  onOpenExtension: () => void;
   totalItems: number;
   underutilizedCount: number;
   loggedInUser: AuthUser | null;
@@ -17,6 +18,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onSelectTab,
   onOpenUpload,
   onOpenAuth,
+  onOpenExtension,
   totalItems,
   underutilizedCount,
   loggedInUser,
@@ -93,6 +95,15 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* Action Button - Space Mono Editorial Upload Button */}
           <div className="flex items-center gap-3">
+            <button
+              id="btn-open-extension"
+              type="button"
+              onClick={onOpenExtension}
+              title="Pasang extension Try-On untuk toko online lain"
+              className="hidden lg:inline-flex items-center gap-1.5 rounded-full border border-[#C8D9A5] bg-white px-3 py-1.5 text-[10px] uppercase tracking-[0.14em] font-medium text-[#191919] hover:border-[#7A2117] hover:text-[#7A2117] transition-colors"
+            >
+              ✦ Extension
+            </button>
             {loggedInUser ? (
               <div className="flex items-center gap-3">
                 <div className="hidden sm:flex items-center gap-2 rounded-full border border-[#C8D9A5] bg-[#F4F7EE] px-3 py-1.5 text-xs font-medium text-[#1B4D3E]">

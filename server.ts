@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import { GoogleGenAI, Type } from '@google/genai';
 import { vtonRouter } from './vton.server.js'; // adjust path to where you put the file
 import { modalVtonRouter } from './vton.modal.js';
+import { extensionRouter } from './extension.server.js';
 
 dotenv.config({ path: ['.env.local', '.env'] });
 
@@ -21,10 +22,13 @@ const VTON_BACKEND_URL = process.env.VTON_BACKEND_URL;
 // Hybrid pipeline on Modal (modal_app/). MODAL_VTON_URL is the URL printed by
 // `modal deploy app.py`; it takes priority over VTON_BACKEND_URL and Gemini.
 const MODAL_VTON_URL = process.env.MODAL_VTON_URL;
+// One try-on API, served to the web app at /api/vton and to the signed-in browser
+// extension at /api/ext/vton (see extension.server.ts).
+const vtonApi = express.Router();
 if (MODAL_VTON_URL) {
-  app.use('/api/vton', modalVtonRouter(MODAL_VTON_URL));
+  vtonApi.use(modalVtonRouter(MODAL_VTON_URL));
 } else if (VTON_BACKEND_URL) {
-  app.post('/api/vton/tryon', async (req, res) => {
+  vtonApi.post('/tryon', async (req, res) => {
     try {
       const r = await fetch(new URL('/api/vton/tryon', VTON_BACKEND_URL), {
         method: 'POST',
@@ -38,7 +42,9 @@ if (MODAL_VTON_URL) {
     }
   });
 }
-app.use('/api/vton', vtonRouter);
+vtonApi.use(vtonRouter);
+app.use('/api/vton', vtonApi);
+app.use('/api/ext', extensionRouter(vtonApi));
 
 // Lazy initialize Gemini client
 function getGeminiClient(): GoogleGenAI | null {

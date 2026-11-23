@@ -40,6 +40,23 @@ const downscale = (src: string, max = 1024) =>
     img.src = src;
   });
 
+// Built-in full-body models, so uploading your own photo is optional. Files live in
+// public/models/: full body, standing, facing the camera, plain background, fitted clothes.
+const TEMPLATES = [
+  { id: 'female', label: 'Perempuan', src: '/models/female.png' },
+  { id: 'male', label: 'Laki-laki', src: '/models/male.png' },
+] as const;
+type ModelChoice = 'own' | (typeof TEMPLATES)[number]['id'];
+const MODEL_KEY = 'ootd.model';
+const loadModelChoice = (): ModelChoice => {
+  try {
+    const saved = localStorage.getItem(MODEL_KEY);
+    return TEMPLATES.some((t) => t.id === saved) ? (saved as ModelChoice) : 'female';
+  } catch {
+    return 'female';
+  }
+};
+
 const MODAL_CATEGORIES = ['Luaran', 'Sepatu', 'Aksesoris']; // also tried on when the Modal backend is used
 
 // Garment sizes (Modal backend). Keep in sync with modal_app/config.py: SIZES,
@@ -77,7 +94,9 @@ const box = 'border border-[#C8D9A5] bg-white rounded-2xl';
 export const VirtualTryOn: React.FC<VirtualTryOnProps> = ({
   closetItems, preSelectedTop, preSelectedBottom, onSaveToHistory, history,
 }) => {
-  const [personPhoto, setPersonPhoto] = useState<string | null>(null);
+  const [personPhoto, setPersonPhoto] = useState<string | null>(null); // the user's own upload
+  const [modelChoice, setModelChoice] = useState<ModelChoice>(loadModelChoice);
+  const [templatePhotos, setTemplatePhotos] = useState<Record<string, string | null>>({});
   const [result, setResult] = useState<string | null>(null);
   const [bg, setBg] = useState(PALETTE[0]);
   const [picks, setPicks] = useState<Record<string, string | null>>({});
@@ -94,6 +113,26 @@ export const VirtualTryOn: React.FC<VirtualTryOnProps> = ({
     alive.current = true;
     return () => { alive.current = false; };
   }, []);
+
+  // Templates are loaded (and downscaled to a data URL like an upload) only when picked.
+  useEffect(() => {
+    if (modelChoice === 'own') return;
+    try { localStorage.setItem(MODEL_KEY, modelChoice); } catch { /* storage unavailable */ }
+    if (modelChoice in templatePhotos) return;
+    const template = TEMPLATES.find((t) => t.id === modelChoice)!;
+    downscale(template.src)
+      .then((src) => alive.current && setTemplatePhotos((t) => ({ ...t, [template.id]: src })))
+      .catch(() => alive.current && setTemplatePhotos((t) => ({ ...t, [template.id]: null })));
+  }, [modelChoice, templatePhotos]);
+  const templateMissing = modelChoice !== 'own' && templatePhotos[modelChoice] === null;
+  const person = modelChoice === 'own' ? personPhoto : templatePhotos[modelChoice] ?? null;
+  const chooseModel = (choice: ModelChoice) => {
+    if (choice === modelChoice) return;
+    setModelChoice(choice);
+    setResult(null);
+    setError(null);
+    setStage(choice === 'own' ? 'Full-body photo loaded' : 'Template model selected');
+  };
 
   const categories = useMemo(() => {
     const all = Array.from(new Set(closetItems.map((i) => i.category as string)));
@@ -200,6 +239,7 @@ export const VirtualTryOn: React.FC<VirtualTryOnProps> = ({
     const fr = new FileReader();
     fr.onload = async () => {
       setPersonPhoto(await downscale(fr.result as string));
+      setModelChoice('own');
       setResult(null);
       setStage('Full-body photo loaded');
     };
@@ -230,7 +270,11 @@ export const VirtualTryOn: React.FC<VirtualTryOnProps> = ({
   };
 
   const generate = async () => {
-    if (!personPhoto) return setError('Upload a full-body photo first.');
+    if (!person) {
+      return setError(templateMissing
+        ? `Template model image is missing (public${TEMPLATES.find((t) => t.id === modelChoice)!.src}). Upload your own photo instead.`
+        : 'Upload a full-body photo or pick a template model first.');
+    }
     if (!modelGarments.length) return setError('Pick at least one top, bottom, or one-piece item.');
     if (bodyGiven && !bodySize) return setError('Enter both height (120-220 cm) and weight (30-200 kg), or leave both empty.');
     setError(null);
@@ -242,7 +286,7 @@ export const VirtualTryOn: React.FC<VirtualTryOnProps> = ({
         name, category, subCategory, imageUrl, size: sizes[category as string] || undefined,
       });
       let data = await api('/api/vton/tryon', {
-        personImage: personPhoto,
+        personImage: person,
         assetBaseUrl: window.location.origin,
         garments: modelGarments.map(pick),
         extras: sideItems.filter(({ category }) => MODAL_CATEGORIES.includes(category as string)).map(pick),
@@ -256,7 +300,7 @@ export const VirtualTryOn: React.FC<VirtualTryOnProps> = ({
       setStage('Done' + (data.warnings?.length ? ` · ${data.warnings[0]}` : ''));
       onSaveToHistory({
         id: `vton-${Date.now()}`,
-        userPhoto: personPhoto,
+        userPhoto: person,
         garment: modelGarments[0],
         secondaryGarment: modelGarments[1],
         renderedTryOnUrl: img,
@@ -272,14 +316,14 @@ export const VirtualTryOn: React.FC<VirtualTryOnProps> = ({
   };
 
   const save = () => {
-    const src = result || personPhoto;
+    const src = result || person;
     if (!src) return;
     const a = document.createElement('a');
     a.href = src;
     a.download = `outfit-${Date.now()}.png`;
     a.click();
   };
-  const shown = result || personPhoto;
+  const shown = result || person;
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-3 text-[#191919] select-none lg:h-[calc(100vh-9rem)]">
@@ -310,11 +354,29 @@ export const VirtualTryOn: React.FC<VirtualTryOnProps> = ({
       <div className="grid grid-cols-1 lg:min-h-0 lg:flex-1 lg:grid-cols-[176px_minmax(0,1fr)] gap-4 items-start lg:items-stretch">
         {/* Left: person photo + body + background */}
         <div className="min-w-0 space-y-3 lg:overflow-y-auto">
-          <div className={`${box} min-w-0 bg-[#F2F7E8] p-3 space-y-3 text-xs font-medium`}>
+          <div className={`${box} min-w-0 bg-[#F2F7E8] p-3 space-y-2 text-xs font-medium`}>
+            <p className="text-[11px] font-semibold">Model</p>
+            <div className="grid grid-cols-2 gap-1.5" role="radiogroup" aria-label="Try-on model">
+              {TEMPLATES.map((t) => (
+                <button key={t.id} type="button" role="radio" aria-checked={modelChoice === t.id} onClick={() => chooseModel(t.id)}
+                  className={`min-w-0 truncate rounded-full border px-2 py-1.5 text-[10px] cursor-pointer ${modelChoice === t.id ? 'border-[#7A2117] bg-[#7A2117] text-white' : 'border-[#C8D9A5] bg-white text-[#191919] hover:bg-[#F8F6EC]'}`}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            {personPhoto && (
+              <button type="button" role="radio" aria-checked={modelChoice === 'own'} onClick={() => chooseModel('own')}
+                className={`w-full min-w-0 truncate rounded-full border px-2 py-1.5 text-[10px] cursor-pointer ${modelChoice === 'own' ? 'border-[#7A2117] bg-[#7A2117] text-white' : 'border-[#C8D9A5] bg-white text-[#191919] hover:bg-[#F8F6EC]'}`}>
+                My photo
+              </button>
+            )}
             <button onClick={() => fileRef.current?.click()} className="w-full min-w-0 rounded-full border border-[#C8D9A5] bg-white px-3 py-2 text-xs text-[#191919] cursor-pointer hover:bg-[#F8F6EC]">
-              {personPhoto ? 'Change photo' : 'Upload photo'}
+              {personPhoto ? 'Change photo' : 'Upload photo'} <span className="text-[#96948B]">(optional)</span>
             </button>
-            <p className="text-[10px] leading-relaxed text-[#96948B]">Full body, standing, facing the camera.</p>
+            <p className="text-[10px] leading-relaxed text-[#96948B]">
+              {templateMissing ? 'This template image is not available yet. Upload your own photo.'
+                : 'Use a template, or upload your own: full body, standing, facing the camera.'}
+            </p>
           </div>
 
           <div className={`${box} min-w-0 p-3 space-y-2 text-xs font-medium`}>
@@ -364,7 +426,7 @@ export const VirtualTryOn: React.FC<VirtualTryOnProps> = ({
                       {shown ? (
                         <img src={shown} alt="Full-body try-on preview" className="absolute inset-0 h-full w-full object-contain" />
                       ) : (
-                        <p className="px-4 text-center text-xs leading-relaxed text-[#96948B]">Upload a full-body photo to preview your outfit.</p>
+                        <p className="px-4 text-center text-xs leading-relaxed text-[#96948B]">Pick a template model or upload a full-body photo to preview your outfit.</p>
                       )}
                     </div>
                     {sideItems.length > 0 && (
@@ -490,7 +552,10 @@ export const VirtualTryOn: React.FC<VirtualTryOnProps> = ({
               {history.map((h) => (
                 <button key={h.id} onClick={() => {
                   setResult(h.renderedTryOnUrl);
-                  if (h.userPhoto) setPersonPhoto(h.userPhoto);
+                  if (h.userPhoto) {
+                    setPersonPhoto(h.userPhoto);
+                    setModelChoice('own');
+                  }
                   setError(null);
                   setStage('Previous try-on');
                 }} title={h.garment?.name}

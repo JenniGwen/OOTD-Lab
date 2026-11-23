@@ -20,6 +20,7 @@ import { MixMatchGenerator } from './components/MixMatchGenerator';
 import { VirtualTryOn } from './components/VirtualTryOn';
 import { WearAnalytics } from './components/WearAnalytics';
 import { UploadModal } from './components/UploadModal';
+import { ExtensionBanner } from './components/ExtensionInstall';
 import SignIn from './components/auth/SignIn';
 import SignUp from './components/auth/SignUp';
 import { AuthUser, onAuthUserChange, signOut } from './lib/auth';
@@ -229,6 +230,7 @@ export default function App() {
           onSelectTab={setActiveTab}
           onOpenUpload={() => setIsUploadOpen(true)}
           onOpenAuth={() => setAuthView('signin')}
+          onOpenExtension={() => { window.location.href = '/extension'; }}
           totalItems={closetItems.length}
           underutilizedCount={underutilizedCount}
           loggedInUser={loggedInUser}
@@ -292,9 +294,12 @@ export default function App() {
           onSaveItem={handleSaveItem}
         />
 
+        <ExtensionBanner />
+
         {/* Footer - Variation 3 Editorial */}
         <footer className="py-6 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full flex flex-col sm:flex-row justify-between items-center gap-3 border-t border-[#C8D9A5] mt-12">
           <div className="label">© 2026 OOTD Lab</div>
+          <a href="/extension" className="label hover:text-[#7A2117]">Pasang extension Try-On →</a>
         </footer>
       </div>
     </>

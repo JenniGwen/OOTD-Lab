@@ -241,6 +241,42 @@ QWEN_PROMPTS = {
     ),
 }
 
+# "Worn or carried the way this kind of accessory normally is" is not enough on its own:
+# a watch photographed lying flat came out dangling from the hand like a bag. When the
+# subtype (closet sub-category / name, or the classifier) says what the accessory is, this
+# placement is added to the prompt. First match wins, so specific patterns come first.
+# Only the placement is described, never the look: Qwen still copies that from image 2.
+QWEN_ACCESSORY_PLACEMENT = [
+    (r"\b(watch|wristwatch|smartwatch|jam ?tangan|arloji)\b",
+     "It is worn on the wrist: the strap is wrapped closed around the person's left wrist, "
+     "with the watch face on the back of the wrist, small and in proportion to the arm. "
+     "It is not held in the hand, not hanging from the fingers and not carried like a bag. "
+     "If a sleeve covers the wrist, the watch sits just below the sleeve cuff. "),
+    (r"\b(bracelet|bangle|gelang)\b",
+     "It is worn closed around the person's wrist, in proportion to the arm, not held in the hand. "),
+    (r"\b(ring|cincin)\b", "It is worn on one of the person's fingers. "),
+    (r"\b(glasses|sunglasses|eyeglasses|kacamata|spectacles)\b",
+     "It is worn on the face, resting on the nose and ears in front of the eyes. "),
+    (r"\b(hat|cap|beanie|topi|bucket|beret|fedora)\b", "It is worn on the head. "),
+    (r"\b(necklace|kalung|pendant|choker)\b", "It is worn around the neck. "),
+    (r"\b(earrings?|anting)\b", "They are worn on the earlobes. "),
+    (r"\b(belt|ikat pinggang|sabuk)\b",
+     "It is worn around the waist, through the belt loops of the trousers or over the waistline. "),
+    (r"\b(scarf|syal|shawl|selendang)\b", "It is worn around the neck. "),
+    (r"\b(backpack|ransel)\b", "It is worn on the back with the straps over both shoulders. "),
+    (r"\b(bag|tas|handbag|tote|purse|clutch|shoulder ?bag|sling)\b",
+     "It is carried the way this kind of bag normally is: on the shoulder if it has a long "
+     "strap, otherwise held by its handle in one hand. "),
+]
+
+
+def accessory_placement(subtype: str = "") -> str:
+    text = (subtype or "").lower()
+    for pattern, phrase in QWEN_ACCESSORY_PLACEMENT:
+        if re.search(pattern, text):
+            return phrase
+    return ""
+
 # Garments (Leffa parsing labels) that a Qwen step must not recolor, see garment_lock.py.
 LOCKED_GARMENT_LABELS = ["upper_clothes", "pants", "skirt", "dress"]
 # Labels a step is allowed to repaint: outerwear covers the top, and an item of unknown

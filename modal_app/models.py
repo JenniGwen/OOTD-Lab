@@ -243,7 +243,14 @@ class QwenEdit:
 
         person_img = fit_canvas(image_from_bytes(person))
         garment_img = image_from_bytes(garment)
-        prompt = config.QWEN_PROMPTS[category]  # subtype is not used: Qwen reads the item from image 2
+        # Qwen reads what the item looks like from image 2; the subtype only says where an
+        # accessory goes (a watch on the wrist, not held like a bag).
+        prompt = config.QWEN_PROMPTS[category]
+        if category == "aksesoris":
+            placement = config.accessory_placement(subtype)
+            if placement:
+                prompt = prompt.replace("Add only this one accessory. ",
+                                        "Add only this one accessory. " + placement)
         if category in config.QWEN_FIT_CATEGORIES:
             prompt += config.QWEN_FIT_PHRASES.get(fit, "")
 

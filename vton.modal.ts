@@ -18,10 +18,11 @@ const LABEL: Record<string, string> = {
 };
 
 // Leffa picks the mask length/flare from keywords in this text, and a skirt ("rok") is
-// routed to Qwen (see modal_app/config.py). Items handled by Qwen need no subtype:
-// it reads the item from the photo.
+// routed to Qwen (see modal_app/config.py). For accessories it tells Qwen where the item
+// is worn (a watch on the wrist, see QWEN_ACCESSORY_PLACEMENT). Other Qwen items need no
+// subtype: it reads the item from the photo.
 function subtypeFor(category: string, g: any): string | undefined {
-  if (category !== 'bawahan' && category !== 'dress') return undefined;
+  if (category !== 'bawahan' && category !== 'dress' && category !== 'aksesoris') return undefined;
   return `${g.subCategory || ''} ${g.name || ''}`.trim().toLowerCase() || undefined;
 }
 
