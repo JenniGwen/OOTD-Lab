@@ -216,7 +216,9 @@ def build_ui():
     timeout=600,
 )
 @modal.concurrent(max_inputs=100)
-@modal.asgi_app()
+# Every request needs a workspace proxy token (Modal-Key / Modal-Secret headers), so the
+# public URL cannot spend credits. Create one with `modal workspace proxy-tokens create`.
+@modal.asgi_app(requires_proxy_auth=True)
 def web():
     import os
 
