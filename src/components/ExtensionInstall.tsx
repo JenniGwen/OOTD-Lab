@@ -250,7 +250,10 @@ export const ExtensionInstall: React.FC = () => {
       </main>
       <footer className="mx-auto flex max-w-5xl justify-between border-t border-[#C8D9A5] px-4 py-6 text-xs text-[#96948B] sm:px-6">
         <span>© 2026 OOTD Lab</span>
-        <a href="/privacy" className="hover:text-[#191919]">Privacy Policy</a>
+        <span className="flex gap-4">
+          <span>Template model photos: <a href="https://www.freepik.com" target="_blank" rel="noopener" className="underline hover:text-[#191919]">Freepik</a></span>
+          <a href="/privacy" className="hover:text-[#191919]">Privacy Policy</a>
+        </span>
       </footer>
     </div>
   );

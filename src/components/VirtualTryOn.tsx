@@ -377,6 +377,11 @@ export const VirtualTryOn: React.FC<VirtualTryOnProps> = ({
               {templateMissing ? 'This template image is not available yet. Upload your own photo.'
                 : 'Use a template, or upload your own: full body, standing, facing the camera.'}
             </p>
+            {modelChoice !== 'own' && (
+              <p className="text-[9px] text-[#96948B]">
+                Model photo: <a href="https://www.freepik.com" target="_blank" rel="noopener" className="underline hover:text-[#191919]">Freepik</a>
+              </p>
+            )}
           </div>
 
           <div className={`${box} min-w-0 p-3 space-y-2 text-xs font-medium`}>
