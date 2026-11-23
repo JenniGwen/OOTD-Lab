@@ -255,6 +255,13 @@ QWEN_COLOR_LOCK_SKIP = {
 # Largest allowed move of a garment's average R/G/B (0-255) across one Qwen step.
 QWEN_COLOR_LOCK_THRESHOLD = 12
 QWEN_COLOR_LOCK_MIN_PIXELS = 200  # at parsing resolution (384x512); ignore slivers
+# Local color change (0-255) above which a pixel counts as a new object drawn over the
+# garment (a bag, a strap) rather than color drift; such pixels are never pasted back.
+QWEN_COLOR_LOCK_NEW_OBJECT = 45
+QWEN_COLOR_LOCK_NEW_OBJECT_MARGIN = 15  # px at parsing resolution around a newly parsed item
+# If less than this share of the garment is left untouched, the whole garment was
+# recolored: check and restore all of it.
+QWEN_COLOR_LOCK_WHOLE_RECOLOR = 0.4
 
 # ---------------------------------------------------------------- classifier
 # Modal Shared Endpoint (OpenAI-compatible). The URL and proxy token come from a
